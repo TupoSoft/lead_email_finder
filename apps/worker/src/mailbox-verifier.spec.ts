@@ -1,5 +1,5 @@
 import { Resolver } from 'node:dns/promises'
-import { VerificationCommand } from '@tuposoft/lead-email-finder-verification-contracts'
+import { VerificationCommand } from '@lead-email-finder-internal/verification-contracts'
 import { MailboxVerifier } from './mailbox-verifier'
 import { SmtpObservation, SmtpSession, SmtpReplyError } from './smtp-session'
 

@@ -1,4 +1,4 @@
-import type { VerificationCommand, VerificationResult } from '@tuposoft/lead-email-finder-verification-contracts'
+import type { VerificationCommand, VerificationResult } from '@lead-email-finder-internal/verification-contracts'
 import { DataSource, EntityManager, IsNull } from 'typeorm'
 import {
     buildWorkerVerification,

@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import { Socket } from 'node:net'
 import { TLSSocket } from 'node:tls'
-import { RawRecipientObservation } from '@tuposoft/lead-email-finder-verification-contracts'
+import { RawRecipientObservation } from '@lead-email-finder-internal/verification-contracts'
 import { parseSmtpResponse } from './smtp.util'
 import { SmtpResponse } from './smtp-response.interface'
 import { connect, ConnectionTimeoutError, readUntil, tlsConnectAsync, write } from './libs/socket/src'

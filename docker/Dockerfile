@@ -34,7 +34,7 @@ COPY packages/verification-contracts ./packages/verification-contracts
 
 # Compile during the image build; the startup command watches for source changes.
 WORKDIR /app/apps/api
-RUN pnpm --filter @tuposoft/lead-email-finder-verification-contracts build && pnpm build
+RUN pnpm --filter @lead-email-finder-internal/verification-contracts build && pnpm build
 
 # Debug
 EXPOSE 9229

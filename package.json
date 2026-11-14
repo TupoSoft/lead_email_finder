@@ -9,7 +9,7 @@
         "node": "26.x"
     },
     "scripts": {
-        "build:contracts": "pnpm --filter @tuposoft/lead-email-finder-verification-contracts build",
+        "build:contracts": "pnpm --filter @lead-email-finder-internal/verification-contracts build",
         "prebuild": "pnpm run build:contracts",
         "build": "pnpm --filter @tuposoft/lead-email-finder-api build && pnpm --filter @tuposoft/lead-email-finder-worker build",
         "prestart": "pnpm run build:contracts",

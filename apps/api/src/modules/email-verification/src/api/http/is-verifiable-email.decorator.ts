@@ -1,6 +1,6 @@
 import { isEmail, ValidateBy } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger'
-import { verificationEmailSchema } from '@tuposoft/lead-email-finder-verification-contracts'
+import { verificationEmailSchema } from '@lead-email-finder-internal/verification-contracts'
 
 const host_blacklist = ['localhost', 'tuposoft.com', 'leademailfinder.com']
 

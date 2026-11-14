@@ -1,5 +1,5 @@
 import { DataSource, EntityManager } from 'typeorm'
-import type { VerificationResult } from '@tuposoft/lead-email-finder-verification-contracts'
+import type { VerificationResult } from '@lead-email-finder-internal/verification-contracts'
 import { TypeOrmVerificationQueueStore } from './typeorm-verification-queue.store'
 import { VerificationExecutionEntity } from './typeorm/verification-execution.entity'
 import { VerificationCommandOutboxEntity } from './typeorm/verification-command-outbox.entity'

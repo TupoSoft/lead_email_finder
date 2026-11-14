@@ -253,6 +253,9 @@ importers:
       '@better-auth/utils':
         specifier: 0.5.0
         version: 0.5.0
+      '@lead-email-finder-internal/verification-contracts':
+        specifier: workspace:*
+        version: link:../../packages/verification-contracts
       '@nestjs/axios':
         specifier: ^4.0.1
         version: 4.0.1(@nestjs/common@11.2.9(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(axios@1.20.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2))(rxjs@7.8.2)
@@ -286,9 +289,6 @@ importers:
       '@paddle/paddle-node-sdk':
         specifier: ^3.10.0
         version: 3.11.1
-      '@tuposoft/lead-email-finder-verification-contracts':
-        specifier: workspace:*
-        version: link:../../packages/verification-contracts
       axios:
         specifier: 1.20.0
         version: 1.20.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
@@ -535,7 +535,7 @@ importers:
 
   apps/worker:
     dependencies:
-      '@tuposoft/lead-email-finder-verification-contracts':
+      '@lead-email-finder-internal/verification-contracts':
         specifier: workspace:*
         version: link:../../packages/verification-contracts
       lru-cache:

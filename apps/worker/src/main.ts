@@ -3,8 +3,8 @@ import {
     parseVerificationCommand,
     VerificationCommand,
     VerificationResult,
-} from '@tuposoft/lead-email-finder-verification-contracts'
-import { CloudflareQueuesClient, QueueMessage } from '@tuposoft/lead-email-finder-verification-contracts/queues'
+} from '@lead-email-finder-internal/verification-contracts'
+import { CloudflareQueuesClient, QueueMessage } from '@lead-email-finder-internal/verification-contracts/queues'
 import { loadConfiguration, smtpIdentity, WorkerConfiguration } from './configuration'
 import { MailboxVerifier } from './mailbox-verifier'
 
