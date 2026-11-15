@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { appRoutes } from '../app/routes'
-import { notFoundCopy, publicEntryCopy } from '../content/public-entry'
+import { appRoutes } from '../../app/routes'
+import { notFoundCopy, publicEntryCopy } from '../../content/public-entry'
 
 describe('not-found route', () => {
     it.each(['/missing-page', '/accept-invitation', '/accept-invitation/removed-token', '/billing/complete'])(

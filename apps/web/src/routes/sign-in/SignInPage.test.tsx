@@ -2,10 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appRoutes } from '../app/routes'
-import { signInCopy } from '../content/auth-shell'
-import { AuthProvider } from '../features/auth/AuthProvider'
-import { AuthSession } from '../features/auth/auth-session'
+import { appRoutes } from '../../app/routes'
+import { signInCopy } from '../../content/auth-shell'
+import { AuthProvider } from '../../features/auth/AuthProvider'
+import { AuthSession } from '../../features/auth/auth-session'
 
 const NativeRequest = globalThis.Request
 

@@ -1,10 +1,10 @@
-import { Principles } from '../components/Principles'
-import { SignalPath } from '../components/SignalPath'
-import { SiteFooter } from '../components/SiteFooter'
-import { SiteHeader } from '../components/SiteHeader'
-import { SkipLink } from '../components/SkipLink'
-import { publicEntryCopy } from '../content/public-entry'
-import { useDocumentTitle } from '../app/useDocumentTitle'
+import { Principles } from '../../components/Principles'
+import { SignalPath } from '../../components/SignalPath'
+import { SiteFooter } from '../../components/SiteFooter'
+import { SiteHeader } from '../../components/SiteHeader'
+import { SkipLink } from '../../components/SkipLink'
+import { publicEntryCopy } from '../../content/public-entry'
+import { useDocumentTitle } from '../../app/useDocumentTitle'
 import styles from './PublicEntryPage.module.css'
 
 export function PublicEntryPage() {

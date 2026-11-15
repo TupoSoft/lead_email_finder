@@ -4,12 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CurrentAccount } from '../../api/current-account'
-import { ForbiddenPage, ProtectedApplication, SessionExpiredPage } from '../../app/AuthRoutes'
-import { VerificationJobPage } from '../../routes/VerificationJobPage'
-import { VerificationPage } from '../../routes/VerificationPage'
-import { AuthProvider } from '../auth/AuthProvider'
-import { AuthSession } from '../auth/auth-session'
-import { verificationQueryKeys, type VerificationOperation, type VerificationResult } from './verification-api'
+import { ForbiddenPage, ProtectedApplication, SessionExpiredPage } from '../auth/AuthRoutes'
+import { VerificationJobPage } from './VerificationJobPage'
+import { VerificationPage } from './VerificationPage'
+import { AuthProvider } from '../../features/auth/AuthProvider'
+import { AuthSession } from '../../features/auth/auth-session'
+import {
+    verificationQueryKeys,
+    type VerificationOperation,
+    type VerificationResult,
+} from '../../features/verification/verification-api'
 
 const NativeRequest = globalThis.Request
 class BrowserRequest extends NativeRequest {

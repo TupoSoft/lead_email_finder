@@ -1,8 +1,8 @@
 import { render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { appRoutes } from '../app/routes'
-import { publicEntryCopy } from '../content/public-entry'
+import { appRoutes } from '../../app/routes'
+import { publicEntryCopy } from '../../content/public-entry'
 
 function renderPublicEntry() {
     const router = createMemoryRouter(appRoutes, { initialEntries: ['/'] })

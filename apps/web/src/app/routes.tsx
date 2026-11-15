@@ -1,11 +1,11 @@
 import { Outlet, type RouteObject } from 'react-router-dom'
 import { AuthProvider } from '../features/auth/AuthProvider'
-import { NotFoundPage } from '../routes/NotFoundPage'
-import { PublicEntryPage } from '../routes/PublicEntryPage'
-import { SignInPage } from '../routes/SignInPage'
-import { BillingPage } from '../routes/BillingPage'
-import { VerificationPage } from '../routes/VerificationPage'
-import { VerificationJobPage } from '../routes/VerificationJobPage'
+import { NotFoundPage } from '../routes/not-found/NotFoundPage'
+import { PublicEntryPage } from '../routes/public-entry/PublicEntryPage'
+import { SignInPage } from '../routes/sign-in/SignInPage'
+import { BillingPage } from '../routes/billing/BillingPage'
+import { VerificationPage } from '../routes/verification/VerificationPage'
+import { VerificationJobPage } from '../routes/verification/VerificationJobPage'
 import {
     AccountUnavailablePage,
     CallbackErrorPage,
@@ -13,8 +13,8 @@ import {
     ProtectedApplication,
     SessionExpiredPage,
     WorkspaceNotFoundPage,
-} from './AuthRoutes'
-import { WorkspaceHome } from './WorkspaceHome'
+} from '../routes/auth/AuthRoutes'
+import { WorkspaceHome } from '../routes/workspace-home/WorkspaceHome'
 
 export const appRoutes: RouteObject[] = [
     {

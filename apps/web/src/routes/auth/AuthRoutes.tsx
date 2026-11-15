@@ -1,12 +1,12 @@
 import { useEffect } from 'react'
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
-import { useAuth } from '../features/auth/use-auth'
-import { safeDestination } from '../features/auth/destination'
-import { notFoundCopy } from '../content/public-entry'
-import { authCopy } from '../content/auth-shell'
-import { StateMessage } from '../shared/StateMessage'
-import action from '../shared/Action.module.css'
-import { ApplicationFrame } from './ApplicationFrame'
+import { useAuth } from '../../features/auth/use-auth'
+import { safeDestination } from '../../features/auth/destination'
+import { notFoundCopy } from '../../content/public-entry'
+import { authCopy } from '../../content/auth-shell'
+import { StateMessage } from '../../shared/StateMessage'
+import action from '../../shared/Action.module.css'
+import { ApplicationFrame } from '../../app/ApplicationFrame'
 
 const recoveryPaths = new Set(['/app/session-expired', '/app/account-unavailable', '/app/forbidden'])
 

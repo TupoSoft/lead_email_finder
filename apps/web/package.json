@@ -21,13 +21,13 @@
         "@tuposoft/lead-email-finder-api-client": "workspace:*",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
-        "react-router-dom": "^7.0.0",
-        "@react-buddy/ide-toolbox": "^2.5.0"
+        "react-router-dom": "^7.0.0"
     },
     "devDependencies": {
         "@cloudflare/vite-plugin": "2.0.0-beta.v.13",
         "@eslint/js": "^9.34.0",
         "@google/design.md": "0.4.0",
+        "@react-buddy/ide-toolbox": "^2.5.0",
         "@testing-library/jest-dom": "6.9.1",
         "@testing-library/react": "^16.3.0",
         "@testing-library/user-event": "^14.6.0",

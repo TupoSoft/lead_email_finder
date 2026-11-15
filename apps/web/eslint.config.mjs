@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
     {
-        ignores: ['dist/**', '.cloudflare/**', 'test-results/**', 'playwright-report/**'],
+        ignores: ['dist/**', '.cloudflare/**', 'test-results/**', 'playwright-report/**', 'src/dev/**'],
     },
     {
         files: ['**/*.{ts,tsx}'],

@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom'
-import { useDocumentTitle } from '../app/useDocumentTitle'
-import { SiteFooter } from '../components/SiteFooter'
-import { SiteHeader } from '../components/SiteHeader'
-import { SkipLink } from '../components/SkipLink'
-import { notFoundCopy } from '../content/public-entry'
-import { CircuitBackdrop } from '../shared/icons'
+import { useDocumentTitle } from '../../app/useDocumentTitle'
+import { SiteFooter } from '../../components/SiteFooter'
+import { SiteHeader } from '../../components/SiteHeader'
+import { SkipLink } from '../../components/SkipLink'
+import { notFoundCopy } from '../../content/public-entry'
+import { CircuitBackdrop } from '../../shared/icons'
 import styles from './NotFoundPage.module.css'
 
 export function NotFoundPage() {

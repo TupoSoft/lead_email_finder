@@ -1,7 +1,7 @@
-import { useAuth } from '../features/auth/use-auth'
-import { authCopy, personalTools } from '../content/auth-shell'
-import { StateMessage } from '../shared/StateMessage'
-import action from '../shared/Action.module.css'
+import { useAuth } from '../../features/auth/use-auth'
+import { authCopy, personalTools } from '../../content/auth-shell'
+import { StateMessage } from '../../shared/StateMessage'
+import action from '../../shared/Action.module.css'
 import styles from './WorkspaceHome.module.css'
 
 export function WorkspaceHome() {
