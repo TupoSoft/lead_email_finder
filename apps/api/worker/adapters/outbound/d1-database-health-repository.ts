@@ -1,6 +1,6 @@
-import { DatabaseHealthRepository } from '../../application/ports/database-health-repository.ts'
+import type { DatabaseHealthRepository } from '@/application/ports/database-health-repository'
 import { sql } from 'drizzle-orm'
-import { Database } from '../../database/connection.ts'
+import { Database } from '@/database/connection'
 
 export class D1DatabaseHealthRepository implements DatabaseHealthRepository {
     constructor(private readonly database: Database) {}

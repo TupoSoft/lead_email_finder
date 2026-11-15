@@ -1,7 +1,7 @@
 import type { AuthContext, BetterAuthPlugin } from 'better-auth'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { sql } from 'drizzle-orm'
-import type { Database } from './database/connection'
+import type { Database } from '@/database/connection'
 
 const authPath = '/v1/auth'
 const requestPath = `${authPath}/sign-in/magic-link`

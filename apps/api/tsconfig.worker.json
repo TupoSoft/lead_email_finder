@@ -6,6 +6,9 @@
         "moduleResolution": "Bundler",
         "noEmit": true,
         "allowImportingTsExtensions": true,
+        "paths": {
+            "@/*": ["./worker/*"]
+        },
         "types": ["node"]
     },
     "include": [

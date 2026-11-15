@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
     root: resolve(import.meta.dirname, '..'),
+    resolve: {
+        alias: {
+            '@': resolve(import.meta.dirname),
+        },
+    },
     test: {
         environment: 'node',
         include: ['worker/**/*.test.ts'],

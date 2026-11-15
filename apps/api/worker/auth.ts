@@ -13,25 +13,13 @@ import {
 import { createAuthMailDelivery } from './auth-mail'
 import { browserAuthFailure, browserAuthPolicy, browserAuthResponse } from './auth-browser'
 import { betterAuthOptions } from './auth-options'
-import { createDatabase, type Database } from './database/connection'
-import { account, rateLimit, session, user, verification } from './database/schema'
+import { createDatabase, type Database } from '@/database/connection'
+import { account, rateLimit, session, user, verification } from '@/database/schema'
+import type { WorkerEnvironment } from './environment'
 
 export interface AuthConfiguration {
     APP_BASE_URL: string
     BETTER_AUTH_SECRET: string
-}
-
-export type VerifiedUser = {
-    id: string
-    name: string
-    email: string
-    emailVerified: boolean
-    image: string | null
-}
-
-export type WorkerEnvironment = {
-    Bindings: Omit<Env, 'APP_BASE_URL'> & AuthConfiguration
-    Variables: { requestId: string; user: VerifiedUser }
 }
 
 function parseApplicationBaseUrl(baseUrl: unknown): URL {

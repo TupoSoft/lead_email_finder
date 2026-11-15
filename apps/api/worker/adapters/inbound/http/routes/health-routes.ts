@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
-import { createServices } from '../../../bootstrap/container.ts'
-import type { WorkerEnvironment } from '../../../auth.ts'
+import { createServices } from '@/bootstrap/container'
+import type { WorkerEnvironment } from '@/environment'
 
 export const healthRoutes = new Hono<WorkerEnvironment>().get('/', async context => {
     context.header('Cache-Control', 'no-store')

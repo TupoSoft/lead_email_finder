@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from 'hono'
 import { routePath } from 'hono/route'
+import type { WorkerEnvironment } from '@/environment'
 
-export const requestLogging: MiddlewareHandler = async (context, next) => {
+export const requestLogger: MiddlewareHandler<WorkerEnvironment> = async (context, next) => {
     const requestId = crypto.randomUUID()
     const startedAt = performance.now()
 

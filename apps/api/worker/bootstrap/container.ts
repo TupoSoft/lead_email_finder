@@ -1,6 +1,6 @@
-import { D1DatabaseHealthRepository } from '../adapters/outbound/d1-database-health-repository.ts'
-import { createDatabase } from '../database/connection.ts'
-import { DatabaseHealthRepository } from '../application/ports/database-health-repository.ts'
+import { D1DatabaseHealthRepository } from '@/adapters/outbound/d1-database-health-repository'
+import { createDatabase } from '@/database/connection'
+import type { DatabaseHealthRepository } from '@/application/ports/database-health-repository'
 
 type Bindings = {
     DB: D1Database
