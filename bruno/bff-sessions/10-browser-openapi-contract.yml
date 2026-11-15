@@ -21,8 +21,10 @@ runtime:
           value: |-
               [
                 "/health",
+                "/v1/auth/callback/google",
                 "/v1/auth/magic-link/verify",
                 "/v1/auth/sign-in/magic-link",
+                "/v1/auth/sign-in/social",
                 "/v1/auth/sign-out",
                 "/v1/billing/summary",
                 "/v1/email-verifications",
@@ -89,3 +91,19 @@ runtime:
         - expression: Object.keys(res.body.paths['/v1/auth/magic-link/verify'].get.responses['302'].headers)
           operator: contains
           value: Location
+        - expression: JSON.stringify(Object.keys(res.body.paths['/v1/auth/callback/google']))
+          operator: eq
+          value: '["get"]'
+        - expression: >-
+              JSON.stringify(res.body.paths['/v1/auth/sign-in/social'].post
+                .requestBody.content['application/json'].schema.properties.provider.enum)
+          operator: eq
+          value: '["google"]'
+        - expression: >-
+              Object.keys(res.body.paths['/v1/auth/sign-in/social'].post
+                .requestBody.content['application/json'].schema.properties)
+          operator: notContains
+          value: idToken
+        - expression: Object.keys(res.body.paths['/v1/auth/callback/google'].get.responses['302'])
+          operator: notContains
+          value: content

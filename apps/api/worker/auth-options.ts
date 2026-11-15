@@ -26,7 +26,6 @@ export const betterAuthOptions = {
         '/revoke-sessions',
         '/send-verification-email',
         '/sign-in/email',
-        '/sign-in/social',
         '/sign-up/email',
         '/unlink-account',
         '/update-session',
@@ -39,12 +38,33 @@ export const betterAuthOptions = {
         updateAge: 60 * 60 * 24,
         cookieCache: { enabled: false },
     },
+    account: {
+        encryptOAuthTokens: true,
+        skipStateCookieCheck: false,
+        storeStateStrategy: 'database',
+        accountLinking: {
+            enabled: true,
+            disableImplicitLinking: false,
+            requireLocalEmailVerified: true,
+            trustedProviders: [],
+            allowDifferentEmails: false,
+        },
+    },
+    user: {
+        validateUserInfo({ user, source }) {
+            if (source.method === 'oauth' && source.oauth?.providerId === 'google' && user.emailVerified !== true) {
+                return { error: 'email_not_verified' }
+            }
+        },
+    },
     rateLimit: {
         enabled: true,
         storage: 'database',
         customRules: {
             '/sign-in/magic-link': { window: 60, max: 5 },
             '/magic-link/verify': { window: 60, max: 10 },
+            '/sign-in/social': { window: 60, max: 5 },
+            '/callback/google': { window: 60, max: 10 },
         },
     },
     advanced: {

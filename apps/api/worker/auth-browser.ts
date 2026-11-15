@@ -7,10 +7,13 @@ const authPath = '/v1/auth'
 const requestPath = `${authPath}/sign-in/magic-link`
 const verificationPath = `${authPath}/magic-link/verify`
 const signOutPath = `${authPath}/sign-out`
+const googleSignInPath = `${authPath}/sign-in/social`
+const googleCallbackPath = `${authPath}/callback/google`
 
 const callbackFields = ['callbackURL', 'newUserCallbackURL', 'errorCallbackURL']
 const submissionFields = ['email', ...callbackFields]
 const verificationFields = ['token', ...callbackFields]
+const socialSubmissionFields = ['provider', ...callbackFields]
 
 function hasOnlyFields(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
@@ -73,6 +76,14 @@ export function browserAuthResponse(response: Response): Response {
 }
 
 export function browserAuthFailure(url: URL, origin: string): Response {
+    if (url.pathname === googleCallbackPath) {
+        return new Response(null, { status: 302, headers: { Location: `${origin}/sign-in?error=google-sign-in` } })
+    }
+
+    if (url.pathname === googleSignInPath) {
+        return Response.json({ code: 'google_sign_in_failed' }, { status: 503 })
+    }
+
     if (url.pathname === verificationPath) {
         return new Response(null, { status: 302, headers: { Location: `${origin}/sign-in?error=invalid-link` } })
     }
@@ -101,13 +112,17 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
 
             // disabledPaths only matches exact paths; these native routes have dynamic segments.
             if (
-                url.pathname.startsWith(`${authPath}/callback/`) ||
+                (url.pathname.startsWith(`${authPath}/callback/`) &&
+                    (url.pathname !== googleCallbackPath || request.method !== 'GET')) ||
                 url.pathname.startsWith(`${authPath}/reset-password/`)
             ) {
                 return Promise.resolve({ response: new Response('Not Found', { status: 404 }) })
             }
 
-            if ((url.pathname === requestPath || url.pathname === signOutPath) && url.search) {
+            if (
+                (url.pathname === requestPath || url.pathname === signOutPath || url.pathname === googleSignInPath) &&
+                url.search
+            ) {
                 return Promise.resolve({ response: new Response('Not Found', { status: 404 }) })
             }
 
@@ -136,6 +151,7 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
                 {
                     matcher: context =>
                         context.path === '/sign-in/magic-link' ||
+                        context.path === '/sign-in/social' ||
                         context.path === '/magic-link/verify' ||
                         context.path === '/sign-out',
                     handler: createAuthMiddleware(context => {
@@ -144,7 +160,21 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
                             query?: Record<string, unknown>
                         } = {}
 
-                        if (context.path === '/sign-in/magic-link') {
+                        if (context.path === '/sign-in/social') {
+                            const body: unknown = context.body
+
+                            if (!hasOnlyFields(body, socialSubmissionFields) || body.provider !== 'google') {
+                                throw new APIError('BAD_REQUEST', {
+                                    code: 'invalid_request',
+                                    message: 'Invalid request.',
+                                })
+                            }
+
+                            requestContext.body = {
+                                ...redirectDefaults(body, origin),
+                                errorCallbackURL: body.errorCallbackURL || '/sign-in?error=google-sign-in',
+                            }
+                        } else if (context.path === '/sign-in/magic-link') {
                             const body: unknown = context.body
 
                             if (!hasOnlyFields(body, submissionFields)) {
@@ -210,6 +240,25 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
         onResponse(response, context) {
             const url = requests.get(context)
 
+            if (
+                url?.pathname === googleCallbackPath &&
+                response.status !== 404 &&
+                response.status !== 429 &&
+                !isSuccessfulVerification(response, context.authCookies.sessionToken.name)
+            ) {
+                // Preserve native state-cookie cleanup while keeping provider errors out of the browser URL.
+                const headers = new Headers(response.headers)
+                headers.set('Location', `${origin}/sign-in?error=google-sign-in`)
+
+                return Promise.resolve({ response: new Response(null, { status: 302, headers }) })
+            }
+
+            if (url?.pathname === googleSignInPath && response.status >= 500) {
+                console.error({ event: 'google_sign_in_failed', requestId })
+
+                return Promise.resolve({ response: browserAuthFailure(url, origin) })
+            }
+
             if (url?.pathname === verificationPath && response.status !== 404 && response.status !== 429) {
                 if (response.status === 400 && url.searchParams.get('token')) {
                     return Promise.resolve({ response: Response.json({ code: 'invalid_request' }, { status: 400 }) })
@@ -237,7 +286,9 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
             // Preserve the browser contract while native validation owns callback rejection.
             // Origin/media-type failures are returned by onRequest before reaching this hook.
             if (
-                (url?.pathname === requestPath || url?.pathname === signOutPath) &&
+                (url?.pathname === requestPath ||
+                    url?.pathname === signOutPath ||
+                    url?.pathname === googleSignInPath) &&
                 (response.status === 400 || response.status === 403)
             ) {
                 return Promise.resolve({ response: Response.json({ code: 'invalid_request' }, { status: 400 }) })

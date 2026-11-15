@@ -2,7 +2,9 @@ import { createHash } from '@better-auth/utils/hash'
 import { betterAuth, type BetterAuthOptions } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError } from 'better-auth/api'
+import { symmetricEncrypt } from 'better-auth/crypto'
 import { magicLink } from 'better-auth/plugins/magic-link'
+import { google, verifyGoogleIdToken } from 'better-auth/social-providers'
 import { sql } from 'drizzle-orm'
 import type { MiddlewareHandler } from 'hono'
 import type { AuthMailDelivery } from '../src/libs/better-auth/src'
@@ -13,6 +15,7 @@ import {
 import { createAuthMailDelivery } from './auth-mail'
 import { browserAuthFailure, browserAuthPolicy, browserAuthResponse } from './auth-browser'
 import { betterAuthOptions } from './auth-options'
+import { wrapCanonicalIdentityAdapter } from './auth-identity-adapter'
 import { createDatabase, type Database } from '@/database/connection'
 import { account, rateLimit, session, user, verification } from '@/database/schema'
 import type { WorkerEnvironment } from './environment'
@@ -20,6 +23,8 @@ import type { WorkerEnvironment } from './environment'
 export interface AuthConfiguration {
     APP_BASE_URL: string
     BETTER_AUTH_SECRET: string
+    GOOGLE_CLIENT_ID: string
+    GOOGLE_CLIENT_SECRET: string
 }
 
 function parseApplicationBaseUrl(baseUrl: unknown): URL {
@@ -59,7 +64,18 @@ export function validateAuthConfiguration(configuration: AuthConfiguration): Aut
         throw new Error('BETTER_AUTH_SECRET must contain at least 32 characters.')
     }
 
-    return { APP_BASE_URL: origin, BETTER_AUTH_SECRET: secret }
+    const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = configuration
+
+    if (
+        typeof GOOGLE_CLIENT_ID !== 'string' ||
+        !GOOGLE_CLIENT_ID.trim() ||
+        typeof GOOGLE_CLIENT_SECRET !== 'string' ||
+        !GOOGLE_CLIENT_SECRET.trim()
+    ) {
+        throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.')
+    }
+
+    return { APP_BASE_URL: origin, BETTER_AUTH_SECRET: secret, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET }
 }
 
 export function createAuth(
@@ -70,17 +86,61 @@ export function createAuth(
 ): ReturnType<typeof betterAuth> {
     const validatedConfiguration = validateAuthConfiguration(configuration)
     const origin = validatedConfiguration.APP_BASE_URL
+    const encryptIdToken = async (data: { idToken?: string | null }): Promise<{ data: { idToken: string } } | void> => {
+        if (!data.idToken) {
+            return
+        }
+
+        // Better Auth's encryptOAuthTokens covers access and refresh tokens only.
+        return {
+            data: {
+                idToken: await symmetricEncrypt({ key: validatedConfiguration.BETTER_AUTH_SECRET, data: data.idToken }),
+            },
+        }
+    }
 
     const options: BetterAuthOptions = {
         ...betterAuthOptions,
         baseURL: origin,
         secret: validatedConfiguration.BETTER_AUTH_SECRET,
         trustedOrigins: [origin],
-        database: drizzleAdapter(database, {
-            provider: 'sqlite',
-            transaction: false,
-            schema: { user, session, account, verification, rateLimit },
-        }),
+        socialProviders: {
+            google: {
+                clientId: validatedConfiguration.GOOGLE_CLIENT_ID,
+                clientSecret: validatedConfiguration.GOOGLE_CLIENT_SECRET,
+                disableIdTokenSignIn: true,
+                async getUserInfo(tokens) {
+                    if (!tokens.idToken) {
+                        return null
+                    }
+
+                    // The provider's default redirect profile reader only decodes the ID token.
+                    const claims = await verifyGoogleIdToken({
+                        token: tokens.idToken,
+                        audience: validatedConfiguration.GOOGLE_CLIENT_ID,
+                    })
+
+                    if (!claims) {
+                        return null
+                    }
+
+                    return google({ clientId: validatedConfiguration.GOOGLE_CLIENT_ID }).getUserInfo(tokens)
+                },
+            },
+        },
+        databaseHooks: {
+            account: {
+                create: { before: encryptIdToken },
+                update: { before: encryptIdToken },
+            },
+        },
+        database: wrapCanonicalIdentityAdapter(
+            drizzleAdapter(database, {
+                provider: 'sqlite',
+                transaction: false,
+                schema: { user, session, account, verification, rateLimit },
+            }),
+        ),
         plugins: [
             browserAuthPolicy(database, origin, requestId),
             magicLink({

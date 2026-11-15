@@ -589,6 +589,88 @@
         ]
       }
     },
+    "/v1/auth/callback/google": {
+      "get": {
+        "description": "Validates state and its browser cookie, exchanges the authorization code using PKCE, and requires a verified Google email before account creation or linking. Implicit linking requires a matching verified local email. Success redirects with an HttpOnly session cookie to the safe application destination; cancellation and failures return to sign-in. Provider tokens and session JSON are never returned.",
+        "operationId": "completeGoogleSignIn",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error_description",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "iss",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirects to the safe application destination, or to sign-in on cancellation or failure.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching protected identity.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "An absolute URL on the configured application origin.",
+                "schema": {
+                  "format": "uri",
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "Preserves session renewal or expiration cookies.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The persistent authentication rate limit was exceeded."
+          }
+        },
+        "security": [],
+        "summary": "Complete Google sign-in in the browser",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
     "/v1/auth/magic-link/verify": {
       "get": {
         "description": "Consumes a hashed, single-use token and redirects with an HttpOnly session cookie. Native token-returning JSON redemption is unavailable. Return destinations must use the application origin, defaulting to /app. Expired or used links and untrusted return destinations redirect to /sign-in?error=invalid-link. An untrusted destination is rejected before consuming the token.",
@@ -851,6 +933,194 @@
         },
         "security": [],
         "summary": "Email a sign-in or signup link",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/auth/sign-in/social": {
+      "post": {
+        "description": "Starts the Google authorization-code redirect flow with state and PKCE. Requires the exact application Origin and application/json. Only Google and same-origin return destinations are accepted; the default success destination is /app. Direct ID-token sign-in and client-supplied OAuth options are unavailable.",
+        "operationId": "startGoogleSignIn",
+        "parameters": [
+          {
+            "description": "Required by the server and supplied automatically by browsers. Must exactly equal the configured application origin; Referer is not a fallback.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "callbackURL": {
+                    "type": "string"
+                  },
+                  "errorCallbackURL": {
+                    "type": "string"
+                  },
+                  "newUserCallbackURL": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "enum": [
+                      "google"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "provider"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "redirect": {
+                      "enum": [
+                        true
+                      ],
+                      "type": "boolean"
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "redirect"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Navigate the browser to the Google authorization URL.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching protected identity.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "Preserves session renewal or expiration cookies.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "invalid_request"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The provider, JSON body, or return destination is invalid."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "origin_not_allowed"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Origin is missing or does not exactly match the application origin."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "json_required"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Content-Type must be application/json."
+          },
+          "429": {
+            "description": "The persistent authentication rate limit was exceeded."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "google_sign_in_failed"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Google sign-in could not be started; retry the request."
+          }
+        },
+        "security": [],
+        "summary": "Start Google sign-in in the browser",
         "tags": [
           "Authentication"
         ]

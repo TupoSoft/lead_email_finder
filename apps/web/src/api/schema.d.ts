@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/callback/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete Google sign-in in the browser
+         * @description Validates state and its browser cookie, exchanges the authorization code using PKCE, and requires a verified Google email before account creation or linking. Implicit linking requires a matching verified local email. Success redirects with an HttpOnly session cookie to the safe application destination; cancellation and failures return to sign-in. Provider tokens and session JSON are never returned.
+         */
+        get: operations["completeGoogleSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/magic-link/verify": {
         parameters: {
             query?: never;
@@ -55,6 +75,26 @@ export interface paths {
          * @description Sends the same generic confirmation for existing and new email addresses. Links expire after five minutes and work once. Requires the exact application Origin and application/json. Return destinations must use the application origin; the default is /app.
          */
         post: operations["requestMagicLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/sign-in/social": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Google sign-in in the browser
+         * @description Starts the Google authorization-code redirect flow with state and PKCE. Requires the exact application Origin and application/json. Only Google and same-origin return destinations are accepted; the default success destination is /app. Direct ID-token sign-in and client-supplied OAuth options are unavailable.
+         */
+        post: operations["startGoogleSignIn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -393,6 +433,43 @@ export interface operations {
             };
         };
     };
+    completeGoogleSignIn: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
+                iss?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirects to the safe application destination, or to sign-in on cancellation or failure. */
+            302: {
+                headers: {
+                    /** @description Prevents caching protected identity. */
+                    "Cache-Control"?: string;
+                    /** @description An absolute URL on the configured application origin. */
+                    Location?: string;
+                    /** @description Preserves session renewal or expiration cookies. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The persistent authentication rate limit was exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     redeemMagicLink: {
         parameters: {
             query: {
@@ -531,6 +608,103 @@ export interface operations {
                     "application/json": {
                         /** @enum {string} */
                         code: "magic_link_delivery_failed";
+                    };
+                };
+            };
+        };
+    };
+    startGoogleSignIn: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required by the server and supplied automatically by browsers. Must exactly equal the configured application origin; Referer is not a fallback. */
+                Origin?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    callbackURL?: string;
+                    errorCallbackURL?: string;
+                    newUserCallbackURL?: string;
+                    /** @enum {string} */
+                    provider: "google";
+                };
+            };
+        };
+        responses: {
+            /** @description Navigate the browser to the Google authorization URL. */
+            200: {
+                headers: {
+                    /** @description Prevents caching protected identity. */
+                    "Cache-Control"?: string;
+                    /** @description Preserves session renewal or expiration cookies. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        redirect: true;
+                        /** Format: uri */
+                        url: string;
+                    };
+                };
+            };
+            /** @description The provider, JSON body, or return destination is invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "invalid_request";
+                    };
+                };
+            };
+            /** @description Origin is missing or does not exactly match the application origin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "origin_not_allowed";
+                    };
+                };
+            };
+            /** @description Content-Type must be application/json. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "json_required";
+                    };
+                };
+            };
+            /** @description The persistent authentication rate limit was exceeded. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Google sign-in could not be started; retry the request. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "google_sign_in_failed";
                     };
                 };
             };

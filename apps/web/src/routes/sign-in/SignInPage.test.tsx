@@ -281,3 +281,150 @@ describe('public magic-link sign-in', () => {
         expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in')
     })
 })
+
+describe('Google redirect sign-in', () => {
+    function captureNavigation() {
+        const assign = vi.fn()
+        const browserWindow = Object.create(window) as Window
+        Object.defineProperty(browserWindow, 'location', { value: { assign } })
+        vi.stubGlobal('window', browserWindow)
+
+        return assign
+    }
+
+    it('requests the redirect once, locks both methods, and navigates to Google with the returned state', async () => {
+        const visitor = userEvent.setup()
+        let complete!: (response: Response) => void
+        const { fetch } = renderSignIn(
+            '/sign-in?destination=%2Fapp%2Fbilling',
+            () =>
+                new Promise<Response>(resolve => {
+                    complete = resolve
+                }),
+        )
+        const assign = captureNavigation()
+
+        await visitor.dblClick(screen.getByRole('button', { name: signInCopy.google }))
+
+        expect(fetch).toHaveBeenCalledOnce()
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeDisabled()
+        expect(screen.getByRole('button', { name: signInCopy.submit })).toBeDisabled()
+        expect(screen.getByRole('textbox', { name: signInCopy.email })).toBeDisabled()
+        expect(screen.getByText(signInCopy.googlePending)).toBeInTheDocument()
+
+        const request = fetch.mock.calls[0][0]
+
+        expect(request.method).toBe('POST')
+        expect(new URL(request.url).pathname).toBe('/v1/auth/sign-in/social')
+        expect(request.credentials).toBe('same-origin')
+        expect(request.headers.get('content-type')).toBe('application/json')
+        expect(await request.clone().json()).toEqual({
+            provider: 'google',
+            callbackURL: '/app/billing',
+            errorCallbackURL: '/sign-in?error=google-sign-in',
+        })
+
+        const url = 'https://accounts.google.com/o/oauth2/v2/auth?state=opaque&code_challenge=challenge'
+        await act(() => Promise.resolve(complete(Response.json({ url, redirect: true }))))
+
+        expect(assign).toHaveBeenCalledExactlyOnceWith(url)
+    })
+
+    it.each([
+        { url: 'https://attacker.test/sign-in', redirect: true },
+        { url: 'https://accounts.google.com.attacker.test/sign-in', redirect: true },
+        { url: 'http://accounts.google.com/sign-in', redirect: true },
+        { url: 'https://private:secret@accounts.google.com/sign-in', redirect: true },
+        { url: 'javascript:alert(1)', redirect: true },
+        { url: 'https://accounts.google.com/sign-in', redirect: false },
+        { token: 'private-session-token', user: {} },
+        {},
+    ])('rejects an unexpected redirect response without navigating: %j', async body => {
+        const visitor = userEvent.setup()
+        renderSignIn('/sign-in', () => Promise.resolve(Response.json(body)))
+        const assign = captureNavigation()
+
+        await visitor.click(screen.getByRole('button', { name: signInCopy.google }))
+
+        expect(await screen.findByText(signInCopy.googleError)).toBeInTheDocument()
+        expect(assign).not.toHaveBeenCalled()
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeEnabled()
+        expect(screen.getByRole('button', { name: signInCopy.submit })).toBeEnabled()
+        expect(screen.queryByText('private-session-token')).not.toBeInTheDocument()
+    })
+
+    it('shows safe recovery for provider cancellation without reflecting provider details', () => {
+        const { fetch } = renderSignIn('/sign-in?error=google-sign-in&error_description=private-provider-detail')
+
+        expect(screen.getByText(signInCopy.googleError)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeEnabled()
+        expect(screen.getByRole('button', { name: signInCopy.submit })).toBeEnabled()
+        expect(screen.queryByText('private-provider-detail')).not.toBeInTheDocument()
+        expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('preserves the entered email and restores both methods after a failed request', async () => {
+        const visitor = userEvent.setup()
+        renderSignIn('/sign-in', () => Promise.reject(new Error('private-provider-detail')))
+
+        await visitor.type(screen.getByRole('textbox', { name: signInCopy.email }), 'owner@example.com')
+        await visitor.click(screen.getByRole('button', { name: signInCopy.google }))
+
+        expect(await screen.findByText(signInCopy.googleError)).toBeInTheDocument()
+        expect(screen.getByRole('textbox', { name: signInCopy.email })).toHaveValue('owner@example.com')
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeEnabled()
+        expect(screen.getByRole('button', { name: signInCopy.submit })).toBeEnabled()
+        expect(screen.queryByText('private-provider-detail')).not.toBeInTheDocument()
+    })
+
+    it('aborts when leaving and ignores a late redirect response', async () => {
+        const visitor = userEvent.setup()
+        let complete!: (response: Response) => void
+        const { fetch, unmount } = renderSignIn(
+            '/sign-in',
+            () =>
+                new Promise<Response>(resolve => {
+                    complete = resolve
+                }),
+        )
+        const assign = captureNavigation()
+
+        await visitor.click(screen.getByRole('button', { name: signInCopy.google }))
+        unmount()
+        await act(() =>
+            Promise.resolve(complete(Response.json({ url: 'https://accounts.google.com/sign-in', redirect: true }))),
+        )
+
+        expect(fetch.mock.calls[0][0].signal.aborted).toBe(true)
+        expect(assign).not.toHaveBeenCalled()
+    })
+
+    it('bounds a stalled Google request and offers recovery without automatically retrying', async () => {
+        vi.useFakeTimers()
+        const { fetch } = renderSignIn(
+            '/sign-in',
+            request =>
+                new Promise((_resolve, reject) => {
+                    request.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                }),
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: signInCopy.google }))
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(20_000)
+        })
+
+        expect(screen.getByText(signInCopy.googleError)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeEnabled()
+        expect(fetch).toHaveBeenCalledOnce()
+    })
+
+    it('keeps Google sign-in disabled while offline', () => {
+        vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+        const { fetch } = renderSignIn()
+
+        expect(screen.getByRole('button', { name: signInCopy.google })).toBeDisabled()
+        expect(fetch).not.toHaveBeenCalled()
+    })
+})

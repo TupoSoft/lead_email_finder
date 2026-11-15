@@ -19,7 +19,13 @@ let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>
 let database: Database
 
 function environment(baseUrl = origin): WorkerEnvironment['Bindings'] {
-    return { ...platform.env, APP_BASE_URL: baseUrl, BETTER_AUTH_SECRET: secret }
+    return {
+        ...platform.env,
+        APP_BASE_URL: baseUrl,
+        BETTER_AUTH_SECRET: secret,
+        GOOGLE_CLIENT_ID: 'test-google-client-id',
+        GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+    }
 }
 
 function signedCookie(token: string, baseUrl = origin): string {
@@ -90,6 +96,25 @@ beforeEach(async () => {
 })
 
 describe('D1 Better Auth sessions', () => {
+    for (const field of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const) {
+        for (const value of [undefined, '', '   ']) {
+            it(`rejects missing or empty Google configuration: ${field}=${value}`, () => {
+                const configuration = environment()
+
+                if (value === undefined) {
+                    Reflect.deleteProperty(configuration, field)
+                } else {
+                    configuration[field] = value
+                }
+
+                assert.throws(
+                    () => createAuth(database, configuration),
+                    /GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured/,
+                )
+            })
+        }
+    }
+
     it('reads a sanitized verified user without exposing credential or storage metadata', async () => {
         const { currentUser, currentSession, cookie } = await seedSession()
 

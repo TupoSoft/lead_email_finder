@@ -161,6 +161,48 @@ describe('browser OpenAPI boundary', () => {
         expect(redemption.responses).not.toHaveProperty('200')
     })
 
+    it('publishes only the Google redirect flow and its browser callback', () => {
+        const browser = buildBrowserDocument(withWorkerAuthentication(fixture()))
+        const start = browser.paths['/v1/auth/sign-in/social'].post!
+        const callback = browser.paths['/v1/auth/callback/google'].get!
+
+        expect(start.security).toEqual([])
+        expect(start.requestBody).toMatchObject({
+            required: true,
+            content: {
+                'application/json': {
+                    schema: {
+                        additionalProperties: false,
+                        required: ['provider'],
+                        properties: { provider: { type: 'string', enum: ['google'] } },
+                    },
+                },
+            },
+        })
+        expect(JSON.stringify(start.requestBody)).not.toMatch(/idToken|disableRedirect|additionalData/)
+        expect(start.responses['200']).toMatchObject({
+            content: {
+                'application/json': {
+                    schema: {
+                        additionalProperties: false,
+                        required: ['url', 'redirect'],
+                        properties: { redirect: { type: 'boolean', enum: [true] } },
+                    },
+                },
+            },
+            headers: { 'Set-Cookie': expect.any(Object) },
+        })
+        expect(Object.keys(start.responses).sort()).toEqual(['200', '400', '403', '415', '429', '503'])
+        expect(callback.responses['302']).toMatchObject({
+            headers: { Location: expect.any(Object), 'Set-Cookie': expect.any(Object) },
+        })
+        expect(callback.responses['302']).not.toHaveProperty('content')
+        expect(callback.responses).not.toHaveProperty('200')
+        expect(browser.paths['/v1/auth/callback/google']).not.toHaveProperty('post')
+        expect(browser.paths).not.toHaveProperty('/v1/auth/link-social')
+        expect(browser.paths).not.toHaveProperty('/v1/auth/callback/{provider}')
+    })
+
     it.each(BROWSER_OPERATIONS)('fails if required $method $path is absent', ({ path, method }) => {
         const full = fixture()
         delete full.paths[path][method]
