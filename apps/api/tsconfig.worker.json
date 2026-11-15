@@ -8,5 +8,11 @@
         "allowImportingTsExtensions": true,
         "types": ["node"]
     },
-    "include": ["worker/**/*.ts", "scripts/**/*.ts", "drizzle.config.ts", "worker-configuration.d.ts"]
+    "include": [
+        "worker/**/*.ts",
+        "worker/**/*.mts",
+        "scripts/**/*.ts",
+        "drizzle.config.ts",
+        "worker-configuration.d.ts"
+    ]
 }

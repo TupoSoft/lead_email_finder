@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
-import { after, before, beforeEach, describe, it, mock } from 'node:test'
+import { afterAll, beforeAll, beforeEach, describe, it, vi } from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import app from './app'
 import type { WorkerEnvironment } from './auth'
@@ -91,17 +91,17 @@ function sessionCookie(response: Response): string {
     return cookie.split(';', 1)[0]
 }
 
-before(async () => {
+beforeAll(async () => {
     platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
-        configPath: resolve(__dirname, '../wrangler.jsonc'),
-        persist: { path: resolve(__dirname, '../.wrangler/state/test/v3') },
+        configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
+        persist: { path: resolve(import.meta.dirname, '../.wrangler/state/test/v3') },
         remoteBindings: false,
         envFiles: [],
     })
     database = createDatabase(platform.env.DB)
 })
 
-after(async () => {
+afterAll(async () => {
     await platform?.dispose()
 })
 
@@ -116,8 +116,8 @@ beforeEach(async () => {
     await database.delete(rateLimit)
 })
 
-void describe('public D1 Better Auth magic links', () => {
-    void it('registers and later signs in the same verified user using only HttpOnly cookies', async () => {
+describe('public D1 Better Auth magic links', () => {
+    it('registers and later signs in the same verified user using only HttpOnly cookies', async () => {
         const email = 'new-person@example.test'
         const link = await issueLink(email, '/app/billing?view=credits')
 
@@ -156,7 +156,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(session)).length, 2)
     })
 
-    void it('stores only the SHA-256 token hash with an exact five-minute lifetime', async () => {
+    it('stores only the SHA-256 token hash with an exact five-minute lifetime', async () => {
         const before = Date.now()
         const link = await issueLink()
         const records = await database.select().from(verification)
@@ -171,7 +171,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.ok(messages[0].text?.includes('The link expires in 5 minutes and works once.'))
     })
 
-    void it('allows exactly one concurrent redemption and rejects every replay', async () => {
+    it('allows exactly one concurrent redemption and rejects every replay', async () => {
         const link = await issueLink()
 
         const responses = await Promise.all(Array.from({ length: 8 }, () => redeem(link)))
@@ -192,7 +192,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(session)).length, 1)
     })
 
-    void it('rejects an expired token without registering a user or issuing a session', async () => {
+    it('rejects an expired token without registering a user or issuing a session', async () => {
         const link = await issueLink()
 
         await database.update(verification).set({ expiresAt: new Date(Date.now() - 1) })
@@ -203,7 +203,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(await database.select().from(session), [])
     })
 
-    void it('persists request limits across fresh auth instances and allows recovery after the window', async () => {
+    it('persists request limits across fresh auth instances and allows recovery after the window', async () => {
         for (let attempt = 0; attempt < 5; attempt++) {
             const response = await submit({ email: `${randomUUID()}@example.test` })
 
@@ -223,7 +223,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal(messages.length, 6)
     })
 
-    void it('persists redemption limits before revealing whether a token exists', async () => {
+    it('persists redemption limits before revealing whether a token exists', async () => {
         const invalid = new URL(`${verifyPath}?token=nonexistent`, origin)
 
         for (let attempt = 0; attempt < 10; attempt++) {
@@ -237,7 +237,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(await database.select().from(session), [])
     })
 
-    void it('enforces the request budget when submissions arrive concurrently', async () => {
+    it('enforces the request budget when submissions arrive concurrently', async () => {
         const responses = await Promise.all(
             Array.from({ length: 12 }, () => submit({ email: `${randomUUID()}@example.test` })),
         )
@@ -248,7 +248,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(verification)).length, 5)
     })
 
-    void it('rejects unsafe callback fields before issuing or delivering a link', async () => {
+    it('rejects unsafe callback fields before issuing or delivering a link', async () => {
         const unsafeDestinations = [
             'https://attacker.example/app',
             '//attacker.example/app',
@@ -272,7 +272,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(await database.select().from(verification), [])
     })
 
-    void it('rejects tampered callback fields without consuming the token or redirecting outside the application', async () => {
+    it('rejects tampered callback fields without consuming the token or redirecting outside the application', async () => {
         const link = await issueLink()
 
         for (const field of ['callbackURL', 'newUserCallbackURL', 'errorCallbackURL']) {
@@ -288,7 +288,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(session)).length, 1)
     })
 
-    void it('forces a safe redirect when callbackURL is omitted instead of returning native JSON credentials', async () => {
+    it('forces a safe redirect when callbackURL is omitted instead of returning native JSON credentials', async () => {
         const link = await issueLink()
         link.searchParams.delete('callbackURL')
         link.searchParams.delete('newUserCallbackURL')
@@ -302,7 +302,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal(await response.text(), '')
     })
 
-    void it('blocks JSON redemption, ambiguous queries, and alternate methods before consuming a token', async () => {
+    it('blocks JSON redemption, ambiguous queries, and alternate methods before consuming a token', async () => {
         const link = await issueLink()
         const jsonResponse = await request(link, { headers: { Accept: 'application/json' } })
 
@@ -336,7 +336,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(session)).length, 1)
     })
 
-    void it('requires same-origin JSON submission and keeps unrelated native auth routes private', async () => {
+    it('requires same-origin JSON submission and keeps unrelated native auth routes private', async () => {
         const body = JSON.stringify({ email: 'person@example.test' })
 
         assert.equal((await request(requestPath, { method: 'POST', body })).status, 403)
@@ -380,7 +380,7 @@ void describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(await database.select().from(verification), [])
     })
 
-    void it('returns generic confirmation for both registration and existing-account requests', async () => {
+    it('returns generic confirmation for both registration and existing-account requests', async () => {
         const email = 'existing@example.test'
         const first = await submit({ email })
         const firstBody: unknown = await first.json()
@@ -398,9 +398,9 @@ void describe('public D1 Better Auth magic links', () => {
         assert.equal((await database.select().from(user)).length, 1)
     })
 
-    void it('reports delivery failure without creating a usable token or exposing provider details', async () => {
+    it('reports delivery failure without creating a usable token or exposing provider details', async () => {
         deliveryError = new Error('Provider failure: private-recipient@example.test secret-token provider-credential')
-        const errorLog = mock.method(console, 'error', () => undefined)
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
         try {
             const response = await submit({ email: 'private-recipient@example.test' })
@@ -413,13 +413,13 @@ void describe('public D1 Better Auth magic links', () => {
             assert.deepEqual(await database.select().from(session), [])
             assertInvalidLink(await redeem(capturedLink()))
 
-            const logged = JSON.stringify(errorLog.mock.calls.map(call => call.arguments))
+            const logged = JSON.stringify(errorLog.mock.calls)
 
             assert.ok(!logged.includes('private-recipient'))
             assert.ok(!logged.includes('secret-token'))
             assert.ok(!logged.includes('provider-credential'))
         } finally {
-            errorLog.mock.restore()
+            errorLog.mockRestore()
         }
 
         deliveryError = undefined

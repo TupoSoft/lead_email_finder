@@ -239,7 +239,7 @@ export const signOut: MiddlewareHandler<WorkerEnvironment> = async context => {
             sql`select id from sessions where id = ${currentSession.session.id}`,
         )
 
-        if (remainingSession) {
+        if (remainingSession.results.length > 0) {
             console.error(JSON.stringify({ event: 'session_revocation_failed', requestId: context.get('requestId') }))
 
             return context.json({ code: 'sign_out_failed' }, 503)
