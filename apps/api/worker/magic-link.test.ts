@@ -130,6 +130,7 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(registered.status, 302)
         assert.equal(registered.headers.get('location'), `${origin}/app/billing?view=credits`)
         assert.equal(registered.headers.get('cache-control'), 'no-store')
+        assert.equal(registered.headers.get('referrer-policy'), 'no-referrer')
         assert.equal(await registered.text(), '')
 
         const me = await request('/v1/me', { headers: { Cookie: sessionCookie(registered) } })
@@ -190,6 +191,11 @@ describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(await database.select().from(verification), [])
         assertInvalidLink(await redeem(link))
         assert.equal((await database.select().from(session)).length, 1)
+
+        link.searchParams.set('callbackURL', '/app?error=INVALID_TOKEN')
+        link.searchParams.set('errorCallbackURL', '/app?error=INVALID_TOKEN')
+
+        assertInvalidLink(await redeem(link))
     })
 
     it('rejects an expired token without registering a user or issuing a session', async () => {
@@ -208,12 +214,16 @@ describe('public D1 Better Auth magic links', () => {
             const response = await submit({ email: `${randomUUID()}@example.test` })
 
             assert.equal(response.status, 200)
+            assert.equal(response.headers.get('cache-control'), 'no-store')
+            assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
         }
 
         const blocked = await submit({ email: `${randomUUID()}@example.test` })
 
         assert.equal(blocked.status, 429)
         assert.ok(Number(blocked.headers.get('retry-after')) > 0)
+        assert.equal(blocked.headers.get('cache-control'), 'no-store')
+        assert.equal(blocked.headers.get('referrer-policy'), 'no-referrer')
         assert.equal(messages.length, 5)
         assert.ok((await database.select().from(rateLimit)).some(record => record.count >= 5))
 
@@ -227,13 +237,19 @@ describe('public D1 Better Auth magic links', () => {
         const invalid = new URL(`${verifyPath}?token=nonexistent`, origin)
 
         for (let attempt = 0; attempt < 10; attempt++) {
-            assertInvalidLink(await redeem(invalid))
+            const response = await redeem(invalid)
+
+            assertInvalidLink(response)
+            assert.equal(response.headers.get('cache-control'), 'no-store')
+            assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
         }
 
         const blocked = await redeem(invalid)
 
         assert.equal(blocked.status, 429)
         assert.ok(Number(blocked.headers.get('retry-after')) > 0)
+        assert.equal(blocked.headers.get('cache-control'), 'no-store')
+        assert.equal(blocked.headers.get('referrer-policy'), 'no-referrer')
         assert.deepEqual(await database.select().from(session), [])
     })
 
@@ -249,6 +265,11 @@ describe('public D1 Better Auth magic links', () => {
     })
 
     it('rejects unsafe callback fields before issuing or delivering a link', async () => {
+        const callbackFields = ['callbackURL', 'newUserCallbackURL', 'errorCallbackURL']
+        const credentialedCallback = new URL('/app', origin)
+        credentialedCallback.username = 'synthetic-user'
+        credentialedCallback.password = 'synthetic-password'
+
         const unsafeDestinations = [
             'https://attacker.example/app',
             '//attacker.example/app',
@@ -257,13 +278,26 @@ describe('public D1 Better Auth magic links', () => {
             `${origin}@attacker.example/app`,
             'https://localhost:53000/app',
             'http://localhost:53001/app',
+            credentialedCallback.href,
         ]
+        const nonStringDestinations = [null, false, 0, [], {}]
 
-        for (const field of ['callbackURL', 'newUserCallbackURL', 'errorCallbackURL']) {
-            for (const destination of unsafeDestinations) {
-                const response = await submit({ email: 'person@example.test', [field]: destination })
+        for (const [fieldIndex, field] of callbackFields.entries()) {
+            for (const [destinationIndex, destination] of unsafeDestinations.entries()) {
+                const ipSuffix = 40 + fieldIndex * unsafeDestinations.length + destinationIndex
+                const ip = `192.0.2.${ipSuffix}`
+                const response = await submit({ email: 'person@example.test', [field]: destination }, ip)
 
                 assert.equal(response.status, 400, `${field} must reject ${destination}`)
+                assert.deepEqual(response.headers.getSetCookie(), [])
+            }
+
+            for (const [destinationIndex, destination] of nonStringDestinations.entries()) {
+                const ipSuffix = 100 + fieldIndex * nonStringDestinations.length + destinationIndex
+                const ip = `192.0.2.${ipSuffix}`
+                const response = await submit({ email: 'person@example.test', [field]: destination }, ip)
+
+                assert.equal(response.status, 400, `${field} must reject ${JSON.stringify(destination)}`)
                 assert.deepEqual(response.headers.getSetCookie(), [])
             }
         }
@@ -311,6 +345,7 @@ describe('public D1 Better Auth magic links', () => {
 
         for (const [key, value] of [
             ['disableRedirect', 'true'],
+            ['__proto__', 'unexpected'],
             ['token', 'other-token'],
             ['callbackURL', '/app/other'],
         ]) {
@@ -427,5 +462,44 @@ describe('public D1 Better Auth magic links', () => {
 
         assert.equal((await redeem(retry)).status, 302)
         assert.equal((await database.select().from(session)).length, 1)
+
+        const deliveredMessages = messages.length
+        const databaseErrorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        try {
+            await platform.env.DB.prepare(
+                `CREATE TRIGGER reject_magic_link_insert
+                 BEFORE INSERT ON verifications
+                 BEGIN
+                     SELECT RAISE(ABORT, 'private-verification-insert-failure database-private-recipient@example.test');
+                 END`,
+            ).run()
+
+            const response = await submit({ email: 'database-private-recipient@example.test' }, '192.0.2.90')
+
+            assert.equal(response.status, 503)
+            assert.deepEqual(await response.json(), { code: 'magic_link_delivery_failed' })
+            assert.deepEqual(response.headers.getSetCookie(), [])
+
+            const persistedCounts = await platform.env.DB.prepare(
+                `SELECT
+                     (SELECT COUNT(*) FROM verifications) AS verificationCount,
+                     (SELECT COUNT(*) FROM users) AS userCount,
+                     (SELECT COUNT(*) FROM sessions) AS sessionCount`,
+            ).first<{ verificationCount: number; userCount: number; sessionCount: number }>()
+
+            assert.deepEqual(persistedCounts, { verificationCount: 0, userCount: 1, sessionCount: 1 })
+            assert.equal(messages.length, deliveredMessages)
+
+            const logged = JSON.stringify(databaseErrorLog.mock.calls)
+
+            assert.ok(!logged.includes('private-verification-insert-failure'))
+            assert.ok(!logged.includes('database-private-recipient'))
+            assert.ok(!logged.includes('verifications'))
+            assert.ok(!/insert\s+into|create\s+trigger|raise\s*\(/i.test(logged))
+        } finally {
+            databaseErrorLog.mockRestore()
+            await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_magic_link_insert').run()
+        }
     })
 })

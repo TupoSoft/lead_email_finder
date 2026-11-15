@@ -10,6 +10,9 @@ import {
     createMagicLinkMessage,
     MAGIC_LINK_LIFETIME_SECONDS,
 } from '../src/libs/better-auth/src/mail/magic-link-message'
+import { createAuthMailDelivery } from './auth-mail'
+import { browserAuthFailure, browserAuthPolicy, browserAuthResponse } from './auth-browser'
+import { betterAuthOptions } from './auth-options'
 import { createDatabase, type Database } from './database/connection'
 import { account, rateLimit, session, user, verification } from './database/schema'
 
@@ -75,14 +78,14 @@ export function createAuth(
     database: Database,
     configuration: AuthConfiguration,
     mailDelivery?: AuthMailDelivery,
+    requestId?: string,
 ): ReturnType<typeof betterAuth> {
     const validatedConfiguration = validateAuthConfiguration(configuration)
     const origin = validatedConfiguration.APP_BASE_URL
 
     const options: BetterAuthOptions = {
-        appName: 'Lead Email Finder',
+        ...betterAuthOptions,
         baseURL: origin,
-        basePath: '/v1/auth',
         secret: validatedConfiguration.BETTER_AUTH_SECRET,
         trustedOrigins: [origin],
         database: drizzleAdapter(database, {
@@ -90,20 +93,8 @@ export function createAuth(
             transaction: false,
             schema: { user, session, account, verification, rateLimit },
         }),
-        session: {
-            expiresIn: 60 * 60 * 24 * 7,
-            updateAge: 60 * 60 * 24,
-            cookieCache: { enabled: false },
-        },
-        rateLimit: {
-            enabled: true,
-            storage: 'database',
-            customRules: {
-                '/sign-in/magic-link': { window: 60, max: 5 },
-                '/magic-link/verify': { window: 60, max: 10 },
-            },
-        },
         plugins: [
+            browserAuthPolicy(database, origin, requestId),
             magicLink({
                 expiresIn: MAGIC_LINK_LIFETIME_SECONDS,
                 disableSignUp: false,
@@ -132,18 +123,34 @@ export function createAuth(
             }),
         ],
         advanced: {
-            database: { generateId: 'uuid' },
-            ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] },
+            ...betterAuthOptions.advanced,
             useSecureCookies: origin.startsWith('https:'),
-            defaultCookieAttributes: { httpOnly: true, sameSite: 'lax', path: '/' },
         },
-        emailAndPassword: { enabled: false },
-        telemetry: { enabled: false },
-        // Driver errors may include SQL and personal data. The HTTP boundary logs a fixed event instead.
-        logger: { disabled: true },
     }
 
-    return betterAuth(options)
+    const instance = betterAuth(options)
+    const handler = async (request: Request): Promise<Response> => {
+        let response: Response
+
+        try {
+            response = await instance.handler(request)
+        } catch {
+            console.error({ event: 'auth_request_failed', requestId })
+            response = browserAuthFailure(new URL(request.url), origin)
+        }
+
+        // Native rate-limit and disabled-path responses bypass Better Auth's response hooks.
+        return browserAuthResponse(response)
+    }
+
+    return { ...instance, handler, fetch: handler }
+}
+
+export function auth(environment: WorkerEnvironment['Bindings'], requestId?: string): ReturnType<typeof betterAuth> {
+    const database = createDatabase(environment.DB)
+    const mailDelivery = createAuthMailDelivery(environment)
+
+    return createAuth(database, environment, mailDelivery, requestId)
 }
 
 export const requireApplicationMutation: MiddlewareHandler<WorkerEnvironment> = async (context, next) => {
@@ -195,56 +202,4 @@ export const requireVerifiedUser: MiddlewareHandler<WorkerEnvironment> = async (
     })
 
     return next()
-}
-
-export const signOut: MiddlewareHandler<WorkerEnvironment> = async context => {
-    context.header('Cache-Control', 'no-store')
-
-    const url = new URL(context.req.url)
-
-    // Only this exact native operation is public. Never forward aliases, query variants, or arbitrary auth paths.
-    if (url.pathname !== '/v1/auth/sign-out' || url.search) {
-        return context.text('Not Found', 404)
-    }
-
-    let body: unknown
-
-    try {
-        body = await context.req.raw.clone().json()
-    } catch {
-        return context.json({ code: 'invalid_request' }, 400)
-    }
-
-    if (typeof body !== 'object' || body === null || Array.isArray(body) || Object.keys(body).length !== 0) {
-        return context.json({ code: 'invalid_request' }, 400)
-    }
-
-    const database = createDatabase(context.env.DB)
-    const auth = createAuth(database, context.env)
-    const currentSession = await auth.api.getSession({
-        headers: context.req.raw.headers,
-        query: { disableRefresh: true },
-    })
-    const response = await auth.handler(context.req.raw)
-
-    if (response.status >= 500) {
-        console.error(JSON.stringify({ event: 'sign_out_failed', requestId: context.get('requestId') }))
-
-        return context.json({ code: 'sign_out_failed' }, 503)
-    }
-
-    if (response.ok && currentSession) {
-        // Better Auth catches deletion errors internally. Do not confirm logout while the credential still works.
-        const remainingSession = await database.run(
-            sql`select id from sessions where id = ${currentSession.session.id}`,
-        )
-
-        if (remainingSession.results.length > 0) {
-            console.error(JSON.stringify({ event: 'session_revocation_failed', requestId: context.get('requestId') }))
-
-            return context.json({ code: 'sign_out_failed' }, 503)
-        }
-    }
-
-    return response
 }
