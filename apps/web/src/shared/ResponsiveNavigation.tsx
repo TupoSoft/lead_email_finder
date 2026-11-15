@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router'
 import type { ApplicationDestination } from '../app/navigation'
 import { authCopy } from '../content/auth-shell'
 import styles from './ResponsiveNavigation.module.css'

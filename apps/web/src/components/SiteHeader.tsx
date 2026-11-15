@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router'
 import { publicEntryCopy } from '../content/public-entry'
 import { authCopy } from '../content/auth-shell'
 import styles from './SiteHeader.module.css'

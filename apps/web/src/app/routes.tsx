@@ -1,4 +1,4 @@
-import { Outlet, type RouteObject } from 'react-router-dom'
+import { Outlet, type RouteObject } from 'react-router'
 import { AuthProvider } from '../features/auth/AuthProvider'
 import { NotFoundPage } from '../routes/not-found/NotFoundPage'
 import { PublicEntryPage } from '../routes/public-entry/PublicEntryPage'

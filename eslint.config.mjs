@@ -16,7 +16,6 @@ export default tseslint.config(
             '.dev/**',
             'deploy/**',
             '**/metadata.ts',
-            'packages/api-client/src/schema.d.ts',
         ],
     },
     eslint.configs.recommended,

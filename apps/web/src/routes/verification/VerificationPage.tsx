@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { useDocumentTitle } from '../../app/useDocumentTitle'
 import { useAuth } from '../../features/auth/use-auth'
 import { useVerificationSubmission } from '../../features/verification/use-verification'

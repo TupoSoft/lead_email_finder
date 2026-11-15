@@ -48,7 +48,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-node26-pnpm${{ steps.pnpm-store.outputs.version }}-api-
       - name: Install dependencies
-        run: corepack pnpm --filter @tuposoft/lead-email-finder --filter @tuposoft/lead-email-finder-api... --filter @tuposoft/lead-email-finder-worker... --filter @tuposoft/lead-email-finder-api-client... --filter @tuposoft/lead-email-finder-mcp-server... install --frozen-lockfile
+        run: corepack pnpm --filter @tuposoft/lead-email-finder --filter @tuposoft/lead-email-finder-api... --filter @tuposoft/lead-email-finder-worker... --filter @tuposoft/lead-email-finder-mcp-server... install --frozen-lockfile
       - name: Lint
         run: corepack pnpm lint
       - name: Type check
@@ -111,8 +111,6 @@ jobs:
         run: corepack pnpm --filter @tuposoft/lead-email-finder-web lint
       - name: Type check web application
         run: corepack pnpm --filter @tuposoft/lead-email-finder-web typecheck
-      - name: Build generated API client
-        run: corepack pnpm --filter @tuposoft/lead-email-finder-api-client build
       - name: Test web application
         run: corepack pnpm --filter @tuposoft/lead-email-finder-web test:ci --maxWorkers=2
       - name: Build web application

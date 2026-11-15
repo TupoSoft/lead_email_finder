@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation } from 'react-router'
 import { useAuth } from '../../features/auth/use-auth'
 import { safeDestination } from '../../features/auth/destination'
 import { notFoundCopy } from '../../content/public-entry'

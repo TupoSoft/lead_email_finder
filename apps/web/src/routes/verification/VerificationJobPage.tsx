@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { ApiError } from '../../api/api-error'
 import { useDocumentTitle } from '../../app/useDocumentTitle'
 import { useAuth } from '../../features/auth/use-auth'

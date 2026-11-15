@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router'
 import { ApiError } from '../../api/api-error'
 import { ApplicationFrame } from '../../app/ApplicationFrame'
 import { signInCopy } from '../../content/auth-shell'

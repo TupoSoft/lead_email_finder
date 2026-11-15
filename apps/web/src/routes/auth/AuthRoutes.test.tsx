@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom'
+import { createMemoryRouter, Outlet } from 'react-router'
+import { RouterProvider } from 'react-router/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CurrentAccount } from '../../api/current-account'
 import { AuthProvider } from '../../features/auth/AuthProvider'

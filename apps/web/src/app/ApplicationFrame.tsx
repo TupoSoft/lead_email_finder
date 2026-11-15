@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import type { CurrentAccount } from '../api/current-account'
 import { SkipLink } from '../components/SkipLink'
 import { authCopy } from '../content/auth-shell'

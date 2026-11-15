@@ -1,4 +1,4 @@
-import type { ApiClient } from '@tuposoft/lead-email-finder-api-client'
+import type { ApiClient } from '../../api/client'
 import { ApiError } from '../../api/api-error'
 
 export async function requestMagicLink(
