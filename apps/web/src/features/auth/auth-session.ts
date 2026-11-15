@@ -1,5 +1,5 @@
 import type { MutationFunctionContext, QueryClient, UseMutationOptions } from '@tanstack/react-query'
-import type { ApiClient, Middleware } from '@tuposoft/lead-email-finder-api-client'
+import type { ApiClient, Middleware } from '../../api/client'
 import { ApiError, normalizeApiError, StaleAuthResponseError } from '../../api/api-error'
 import { createBrowserApiClient, type BrowserApiClientOptions } from '../../api/browser-api-client'
 import { getCurrentAccount, type CurrentAccount } from '../../api/current-account'

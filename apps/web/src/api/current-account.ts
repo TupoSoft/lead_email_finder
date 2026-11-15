@@ -1,4 +1,4 @@
-import type { ApiClient, paths } from '@tuposoft/lead-email-finder-api-client'
+import type { ApiClient, paths } from './client'
 import { ApiError } from './api-error'
 
 export type CurrentAccount = paths['/v1/me']['get']['responses'][200]['content']['application/json']

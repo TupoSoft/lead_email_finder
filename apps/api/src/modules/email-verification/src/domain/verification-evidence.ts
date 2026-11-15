@@ -2,7 +2,7 @@ export {
     deriveMailboxEvidence,
     NO_MAILBOX_EVIDENCE,
     VERIFICATION_EVIDENCE_POLICY_VERSION,
-} from '@tuposoft/lead-email-finder-verification-contracts'
+} from '@lead-email-finder-internal/verification-contracts'
 export type {
     MailboxEvidence,
     MailboxEvidenceOrigin,
@@ -11,4 +11,4 @@ export type {
     SmtpRecipientAcceptedEvidence,
     SmtpRecipientMissingEvidence,
     VerificationQuality,
-} from '@tuposoft/lead-email-finder-verification-contracts'
+} from '@lead-email-finder-internal/verification-contracts'

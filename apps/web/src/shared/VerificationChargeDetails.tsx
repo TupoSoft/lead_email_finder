@@ -1,4 +1,4 @@
-import type { components } from '@tuposoft/lead-email-finder-api-client'
+import type { components } from '../api/client'
 import { SignalDetails } from './SignalDetails'
 import { chargedCreditLabel, reservedCreditLabel, verificationChargeCopy as copy } from './verification-charge-copy'
 import styles from './VerificationChargeDetails.module.css'

@@ -1,5 +1,5 @@
 {
-    "name": "@tuposoft/lead-email-finder-verification-contracts",
+    "name": "@lead-email-finder-internal/verification-contracts",
     "version": "0.0.0",
     "license": "Apache-2.0",
     "private": true,

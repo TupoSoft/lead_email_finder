@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { describe, it, mock } from 'node:test'
-import { AuthMailDeliveryError, type AuthMailMessage } from '../src/libs/better-auth/src/mail/auth-mail-delivery.js'
+import { afterEach, describe, it, vi } from 'vitest'
+import { AuthMailDeliveryError, type AuthMailMessage } from '../src/libs/better-auth/src'
 import {
     createMagicLinkMessage,
     MAGIC_LINK_LIFETIME_SECONDS,
-} from '../src/libs/better-auth/src/mail/magic-link-message.js'
-import { createAuthMailDelivery, validateAuthMailConfiguration, type AuthMailConfiguration } from './auth-mail.js'
+} from '../src/libs/better-auth/src/mail/magic-link-message'
+import { createAuthMailDelivery, validateAuthMailConfiguration, type AuthMailConfiguration } from './auth-mail'
 
 const from = 'no-reply@example.test'
 const to = 'person+sign-in@example.test'
@@ -17,8 +17,12 @@ function configuration(
     return { AUTH_MAIL_FROM: from, AUTH_EMAIL: { send } }
 }
 
-void describe('Cloudflare authentication mail', () => {
-    void it('constructs the existing five-minute, single-use plain-text sign-in message', () => {
+describe('Cloudflare authentication mail', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('constructs the existing five-minute, single-use plain-text sign-in message', () => {
         assert.equal(MAGIC_LINK_LIFETIME_SECONDS, 300)
         assert.deepEqual(createMagicLinkMessage(to, link), {
             to,
@@ -34,7 +38,7 @@ void describe('Cloudflare authentication mail', () => {
         })
     })
 
-    void it('awaits binding acceptance and sends only the configured sender and message fields', async () => {
+    it('awaits binding acceptance and sends only the configured sender and message fields', async () => {
         const messages: unknown[] = []
         let accept: (result: EmailSendResult) => void = () => assert.fail('send was not started')
         const delivery = createAuthMailDelivery(
@@ -62,7 +66,7 @@ void describe('Cloudflare authentication mail', () => {
         assert.equal(completed, true)
     })
 
-    void it('maps a configured display name to the structured address field', async () => {
+    it('maps a configured display name to the structured address field', async () => {
         const messages: unknown[] = []
         const settings = configuration(message => {
             messages.push(message)
@@ -81,7 +85,7 @@ void describe('Cloudflare authentication mail', () => {
         ])
     })
 
-    void it('rejects missing, malformed, multiple, or injected senders without exposing their values', () => {
+    it('rejects missing, malformed, multiple, or injected senders without exposing their values', () => {
         const invalidSenders = [
             undefined,
             null,
@@ -107,7 +111,7 @@ void describe('Cloudflare authentication mail', () => {
         }
     })
 
-    void it('rejects a missing or unusable binding at composition time', () => {
+    it('rejects a missing or unusable binding at composition time', () => {
         for (const binding of [undefined, null, {}, { send: 'private-value' }]) {
             assert.throws(
                 // @ts-expect-error Exercise a missing or invalid runtime binding.
@@ -117,8 +121,8 @@ void describe('Cloudflare authentication mail', () => {
         }
     })
 
-    void it('rejects unsafe recipients and empty or injected messages before contacting the binding', async () => {
-        const send = mock.fn(() => Promise.resolve({ messageId: 'synthetic-id' }))
+    it('rejects unsafe recipients and empty or injected messages before contacting the binding', async () => {
+        const send = vi.fn(() => Promise.resolve({ messageId: 'synthetic-id' }))
         const delivery = createAuthMailDelivery(configuration(send))
         const message = createMagicLinkMessage(to, link)
         const invalidMessages: AuthMailMessage[] = [
@@ -138,7 +142,7 @@ void describe('Cloudflare authentication mail', () => {
             await assert.rejects(delivery.send(invalid), { name: 'AuthMailDeliveryError', reason: 'invalid-message' })
         }
 
-        assert.equal(send.mock.callCount(), 0)
+        assert.equal(send.mock.calls.length, 0)
     })
 
     const failures: [unknown, AuthMailDeliveryError['reason']][] = [
@@ -159,9 +163,9 @@ void describe('Cloudflare authentication mail', () => {
     ]
 
     for (const [index, [code, reason]] of failures.entries()) {
-        void it(`redacts provider failure ${index + 1} as ${reason}`, async context => {
+        it(`redacts provider failure ${index + 1} as ${reason}`, async () => {
             const logs = (['log', 'info', 'warn', 'error'] as const).map(method =>
-                context.mock.method(console, method, () => undefined),
+                vi.spyOn(console, method).mockImplementation(() => undefined),
             )
             const providerFailure = Object.assign(new Error(`Failed for ${to}: ${link}`), {
                 code,
@@ -182,11 +186,11 @@ void describe('Cloudflare authentication mail', () => {
                 return true
             })
 
-            assert.ok(logs.every(log => log.mock.callCount() === 0))
+            assert.ok(logs.every(log => log.mock.calls.length === 0))
         })
     }
 
-    void it('redacts synchronous throws and non-Error failures', async () => {
+    it('redacts synchronous throws and non-Error failures', async () => {
         for (const failure of [link, null, undefined, { message: link }]) {
             const delivery = createAuthMailDelivery(
                 configuration(() => {

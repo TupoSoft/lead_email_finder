@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, it } from 'node:test'
+import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 import { createHmac, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
-import app from './app.js'
-import { createAuth, requireApplicationMutation, requireVerifiedUser, type WorkerEnvironment } from './auth.js'
-import { createDatabase, type Database } from './database/connection.js'
-import { account, rateLimit, session, user, verification } from './database/schema.js'
+import app from './app'
+import { createAuth, requireApplicationMutation, requireVerifiedUser } from './auth'
+import type { WorkerEnvironment } from './environment'
+import { createDatabase, type Database } from '@/database/connection'
+import { account, rateLimit, session, user, verification } from '@/database/schema'
 
 const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
@@ -65,17 +66,17 @@ async function request(path: string, options: RequestInit = {}, baseUrl = origin
     return app.request(new Request(`${baseUrl}${path}`, options), undefined, environment(baseUrl))
 }
 
-before(async () => {
+beforeAll(async () => {
     platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
-        configPath: resolve(__dirname, '../wrangler.jsonc'),
-        persist: { path: resolve(__dirname, '../.wrangler/state/test/v3') },
+        configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
+        persist: { path: resolve(import.meta.dirname, '../.wrangler/state/test/v3') },
         remoteBindings: false,
         envFiles: [],
     })
     database = createDatabase(platform.env.DB)
 })
 
-after(async () => {
+afterAll(async () => {
     await platform?.dispose()
 })
 
@@ -88,8 +89,8 @@ beforeEach(async () => {
     await database.delete(rateLimit)
 })
 
-void describe('D1 Better Auth sessions', () => {
-    void it('reads a sanitized verified user without exposing credential or storage metadata', async () => {
+describe('D1 Better Auth sessions', () => {
+    it('reads a sanitized verified user without exposing credential or storage metadata', async () => {
         const { currentUser, currentSession, cookie } = await seedSession()
 
         const response = await request('/v1/me', { headers: { cookie } })
@@ -112,7 +113,7 @@ void describe('D1 Better Auth sessions', () => {
         )
     })
 
-    void it('renews a session after one day and preserves every refresh cookie on the sanitized response', async () => {
+    it('renews a session after one day and preserves every refresh cookie on the sanitized response', async () => {
         const { currentSession, cookie } = await seedSession({ age: day + 1000 })
         const before = Date.now()
 
@@ -141,7 +142,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.ok(!(await response.text()).includes(currentSession.token))
     })
 
-    void it('does not renew before the daily interval', async () => {
+    it('does not renew before the daily interval', async () => {
         const { currentSession, cookie } = await seedSession({ age: day - 60_000 })
 
         const response = await request('/v1/me', { headers: { cookie } })
@@ -152,7 +153,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.deepEqual(unchanged?.expiresAt, currentSession.expiresAt)
     })
 
-    void it('preserves both session renewal and stale cookie-cache cleanup headers', async () => {
+    it('preserves both session renewal and stale cookie-cache cleanup headers', async () => {
         const { cookie } = await seedSession({ age: day + 1000 })
 
         const response = await request('/v1/me', {
@@ -165,7 +166,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.ok(cookies.some(value => /session_data=.*Max-Age=0/.test(value)))
     })
 
-    void it('preserves refresh cookies when verified-user authorization rejects the session', async () => {
+    it('preserves refresh cookies when verified-user authorization rejects the session', async () => {
         const { cookie } = await seedSession({ age: day + 1000, verified: false })
 
         const response = await request('/v1/me', { headers: { cookie } })
@@ -175,7 +176,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.ok(response.headers.getSetCookie().some(value => /session_token=.*Max-Age=604800/.test(value)))
     })
 
-    void it('uses a Secure HttpOnly SameSite=Lax session cookie over HTTPS', async () => {
+    it('uses a Secure HttpOnly SameSite=Lax session cookie over HTTPS', async () => {
         const { currentSession } = await seedSession({ age: day + 1000 })
         const baseUrl = 'https://app.example.test'
 
@@ -194,7 +195,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.ok(tokenCookie.includes('SameSite=Lax'))
     })
 
-    void it('rejects expiry and forwards cookie deletion while removing the expired database session', async () => {
+    it('rejects expiry and forwards cookie deletion while removing the expired database session', async () => {
         const { currentSession, cookie } = await seedSession({ expiresAt: new Date(Date.now() - 1000) })
 
         const response = await request('/v1/me', { headers: { cookie } })
@@ -208,7 +209,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.equal(await database.select().from(session).where(eq(session.id, currentSession.id)).get(), undefined)
     })
 
-    void it('checks D1 on every request so revocation immediately rejects an existing cookie', async () => {
+    it('checks D1 on every request so revocation immediately rejects an existing cookie', async () => {
         const { currentSession, cookie } = await seedSession()
 
         assert.equal((await request('/v1/me', { headers: { cookie } })).status, 200)
@@ -220,7 +221,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.deepEqual(await response.json(), { code: 'authentication_required' })
     })
 
-    void it('rejects missing and tampered cookies, and denies unverified users', async () => {
+    it('rejects missing and tampered cookies, and denies unverified users', async () => {
         const { cookie } = await seedSession({ verified: false })
 
         const missing = await request('/v1/me')
@@ -233,7 +234,7 @@ void describe('D1 Better Auth sessions', () => {
         assert.deepEqual(await unverified.json(), { code: 'email_verification_required' })
     })
 
-    void it('maps account and verification models through the SQLite adapter', async () => {
+    it('maps account and verification models through the SQLite adapter', async () => {
         const { currentUser } = await seedSession()
         const auth = createAuth(database, environment())
         const context = await auth.$context
@@ -284,8 +285,8 @@ void describe('D1 Better Auth sessions', () => {
     })
 })
 
-void describe('native sign-out and endpoint restrictions', () => {
-    void it('applies Origin and JSON checks before native sign-out can revoke a session', async () => {
+describe('native sign-out and endpoint restrictions', () => {
+    it('applies Origin and JSON checks before native sign-out can revoke a session', async () => {
         const { cookie } = await seedSession()
 
         const deniedOrigin = await request('/v1/auth/sign-out', {
@@ -304,7 +305,7 @@ void describe('native sign-out and endpoint restrictions', () => {
         assert.equal((await request('/v1/me', { headers: { cookie } })).status, 200)
     })
 
-    void it('revokes the persisted session, clears cookies, and persists native rate limiting', async () => {
+    it('revokes the persisted session, clears cookies, and persists native rate limiting', async () => {
         const { cookie } = await seedSession()
 
         const response = await request('/v1/auth/sign-out', {
@@ -323,7 +324,7 @@ void describe('native sign-out and endpoint restrictions', () => {
         assert.ok((await database.select().from(rateLimit)).length > 0)
     })
 
-    void it('does not report successful logout when the database rejects revocation', async () => {
+    it('does not report successful logout when the database rejects revocation', async () => {
         const { cookie } = await seedSession()
         await platform.env.DB.prepare(
             "CREATE TRIGGER reject_session_deletion BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'synthetic delete failure'); END",
@@ -347,12 +348,17 @@ void describe('native sign-out and endpoint restrictions', () => {
         '/v1/auth/get-session?disableCookieCache=true',
         '/v1/auth/list-sessions',
         '/v1/auth/get-token',
+        '/v1/auth/get-access-token',
+        '/v1/auth/callback/synthetic-provider',
+        '/v1/auth/reset-password/synthetic-token',
+        '/v1/auth/update-user',
+        '/v1/auth/list-accounts',
         '/v1/auth/sign-in/email',
         '/v1/auth/sign-out/',
         '/v1/auth/%73ign-out',
         '/v1/auth/sign-out?callbackURL=%2Fapp',
     ]) {
-        void it(`keeps native token and alternate endpoints unavailable: ${path}`, async () => {
+        it(`keeps native token and alternate endpoints unavailable: ${path}`, async () => {
             const { cookie } = await seedSession()
 
             for (const method of ['GET', 'POST']) {
@@ -371,7 +377,7 @@ void describe('native sign-out and endpoint restrictions', () => {
     }
 
     for (const body of ['', 'null', '[]', '{"callbackURL":"/app"}', '{']) {
-        void it(`requires an empty JSON object for sign-out: ${body}`, async () => {
+        it(`requires an empty JSON object for sign-out: ${body}`, async () => {
             const { cookie } = await seedSession()
 
             const response = await request('/v1/auth/sign-out', {
@@ -386,13 +392,13 @@ void describe('native sign-out and endpoint restrictions', () => {
     }
 })
 
-void describe('application mutation security', () => {
+describe('application mutation security', () => {
     const protectedApp = new Hono<WorkerEnvironment>()
         .use('*', requireApplicationMutation, requireVerifiedUser)
         .all('/mutation', context => context.json({ userId: context.get('user').id }))
 
     for (const suppliedOrigin of [undefined, 'null', 'http://attacker.test', `${origin}/`, 'http://localhost:53001']) {
-        void it(`requires the exact configured Origin: ${suppliedOrigin}`, async () => {
+        it(`requires the exact configured Origin: ${suppliedOrigin}`, async () => {
             const { cookie } = await seedSession()
             const headers = new Headers({ cookie, 'Content-Type': 'application/json' })
 
@@ -410,7 +416,7 @@ void describe('application mutation security', () => {
     }
 
     for (const contentType of [undefined, 'text/plain', 'application/x-www-form-urlencoded', 'application/jsonp']) {
-        void it(`requires JSON for mutations: ${contentType}`, async () => {
+        it(`requires JSON for mutations: ${contentType}`, async () => {
             const { cookie } = await seedSession()
             const headers = new Headers({ cookie, Origin: origin })
 
@@ -427,7 +433,7 @@ void describe('application mutation security', () => {
         })
     }
 
-    void it('authorizes a verified user with the exact Origin and JSON media type parameters', async () => {
+    it('authorizes a verified user with the exact Origin and JSON media type parameters', async () => {
         const { currentUser, cookie } = await seedSession()
 
         const response = await protectedApp.request(
@@ -444,7 +450,7 @@ void describe('application mutation security', () => {
         assert.deepEqual(await response.json(), { userId: currentUser.id })
     })
 
-    void it('preserves renewed cookies when the protected handler fails after authentication', async () => {
+    it('preserves renewed cookies when the protected handler fails after authentication', async () => {
         const { cookie } = await seedSession({ age: day + 1000 })
         const failingApp = new Hono<WorkerEnvironment>()
             .use('*', requireApplicationMutation, requireVerifiedUser)
@@ -469,7 +475,7 @@ void describe('application mutation security', () => {
     })
 
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-        void it(`checks Origin and JSON for ${method} mutations`, async () => {
+        it(`checks Origin and JSON for ${method} mutations`, async () => {
             const { cookie } = await seedSession()
 
             const deniedOrigin = await protectedApp.request(
@@ -488,7 +494,7 @@ void describe('application mutation security', () => {
         })
     }
 
-    void it('rejects expired and unverified sessions before executing a protected mutation', async () => {
+    it('rejects expired and unverified sessions before executing a protected mutation', async () => {
         const expired = await seedSession({ expiresAt: new Date(Date.now() - 1000) })
         const unverified = await seedSession({ verified: false })
 

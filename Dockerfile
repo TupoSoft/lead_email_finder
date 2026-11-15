@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY . .
 
 # Generate metadata and build the application.
-RUN pnpm --filter @tuposoft/lead-email-finder-verification-contracts build && pnpm --filter @tuposoft/lead-email-finder-api build
+RUN pnpm --filter @lead-email-finder-internal/verification-contracts build && pnpm --filter @tuposoft/lead-email-finder-api build
 
 FROM node:${NODE_VERSION}-alpine
 
@@ -35,11 +35,11 @@ ENV APP_MAIN_FILE="dist/main"
 RUN --mount=type=cache,target=/var/cache/apk \
     apk add --update-cache \
     wget \
-    # curl is for the healthcheck
+    # curl is for the healthcheck \
     curl \
-    # bind-tools is for DNS, see https://github.com/nodejs/docker-node/issues/339
+    # bind-tools is for DNS, see https://github.com/nodejs/docker-node/issues/339 \
     bind-tools \
-    # jq is for the healthcheck
+    # jq is for the healthcheck \
     jq
 
 # Install Corepack to enable the pnpm version pinned by package.json.

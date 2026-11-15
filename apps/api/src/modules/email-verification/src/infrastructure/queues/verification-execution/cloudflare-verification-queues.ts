@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { parseVerificationResult } from '@tuposoft/lead-email-finder-verification-contracts'
-import { CloudflareQueuesClient } from '@tuposoft/lead-email-finder-verification-contracts/queues'
+import { parseVerificationResult } from '@lead-email-finder-internal/verification-contracts'
+import { CloudflareQueuesClient } from '@lead-email-finder-internal/verification-contracts/queues'
 import { TypeOrmVerificationQueueStore } from '../../persistence/typeorm-verification-queue.store'
 import { VerificationSettlementService } from '../../../application/operations/verification-settlement.service'
 

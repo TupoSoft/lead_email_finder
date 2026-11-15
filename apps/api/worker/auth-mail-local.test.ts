@@ -2,18 +2,18 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { glob, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { it } from 'node:test'
+import { it } from 'vitest'
 import { setTimeout } from 'node:timers/promises'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import { createMagicLinkMessage } from '../src/libs/better-auth/src/mail/magic-link-message'
-import { createAuthMailDelivery } from './auth-mail.js'
+import { createAuthMailDelivery } from './auth-mail'
 
-void it('captures authentication mail through the native local email simulator', { timeout: 20_000 }, async () => {
+it('captures authentication mail through the native local email simulator', async () => {
     let platform: PlatformProxy<Pick<Env, 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>> | undefined
 
     try {
         platform = await getPlatformProxy<Pick<Env, 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
-            configPath: resolve(__dirname, '../wrangler.jsonc'),
+            configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
             persist: false,
             remoteBindings: false,
             envFiles: [],
@@ -27,7 +27,7 @@ void it('captures authentication mail through the native local email simulator',
 
         await delivery.send(message)
 
-        const captureRoot = resolve(__dirname, '../.wrangler/tmp/email')
+        const captureRoot = resolve(import.meta.dirname, '../.wrangler/tmp/email')
 
         // Native capture files are written asynchronously after the binding accepts the message.
         for (let attempt = 0; attempt < 100; attempt++) {
@@ -46,4 +46,4 @@ void it('captures authentication mail through the native local email simulator',
     } finally {
         await platform?.dispose()
     }
-})
+}, 20_000)

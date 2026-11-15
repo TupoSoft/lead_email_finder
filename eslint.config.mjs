@@ -16,7 +16,6 @@ export default tseslint.config(
             '.dev/**',
             'deploy/**',
             '**/metadata.ts',
-            'packages/api-client/src/schema.d.ts',
         ],
     },
     eslint.configs.recommended,
@@ -44,7 +43,7 @@ export default tseslint.config(
         },
     },
     {
-        files: ['apps/api/worker/**/*.ts', 'apps/api/scripts/**/*.ts', 'apps/api/drizzle.config.ts'],
+        files: ['apps/api/worker/**/*.{ts,mts}', 'apps/api/scripts/**/*.ts', 'apps/api/drizzle.config.ts'],
         languageOptions: {
             parserOptions: {
                 projectService: false,

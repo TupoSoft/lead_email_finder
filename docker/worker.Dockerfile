@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 COPY tsconfig.base.json ./
 COPY apps/worker ./apps/worker
 COPY packages/verification-contracts ./packages/verification-contracts
-RUN pnpm --filter @tuposoft/lead-email-finder-verification-contracts build && \
+RUN pnpm --filter @lead-email-finder-internal/verification-contracts build && \
     pnpm --filter @tuposoft/lead-email-finder-worker build
 
 FROM node:${NODE_VERSION}-alpine

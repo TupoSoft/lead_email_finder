@@ -9,7 +9,7 @@ import {
     serializeMailboxEvidence,
     VerificationCommand,
     VerificationResult,
-} from '@tuposoft/lead-email-finder-verification-contracts'
+} from '@lead-email-finder-internal/verification-contracts'
 import type { AccountDiscovery } from './application/ports/account-discovery'
 import { isPublicDestination } from './public-destination'
 import { SmtpIdentity, SmtpObservation, SmtpReplyError, SmtpSession } from './smtp-session'

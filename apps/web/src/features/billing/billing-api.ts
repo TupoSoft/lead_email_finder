@@ -1,4 +1,4 @@
-import type { ApiClient, paths } from '@tuposoft/lead-email-finder-api-client'
+import type { ApiClient, paths } from '../../api/client'
 import { ApiError } from '../../api/api-error'
 
 export type BillingSummary = paths['/v1/billing/summary']['get']['responses'][200]['content']['application/json']

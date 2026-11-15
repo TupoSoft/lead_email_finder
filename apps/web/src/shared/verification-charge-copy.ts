@@ -1,4 +1,4 @@
-import type { components } from '@tuposoft/lead-email-finder-api-client'
+import type { components } from '../api/client'
 
 export const verificationChargeCopy = {
     region: 'Verification charges',

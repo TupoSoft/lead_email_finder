@@ -4,7 +4,7 @@ import {
     deriveEvidenceObservedAt,
     deserializeMailboxEvidence,
     VERIFICATION_EVIDENCE_POLICY_VERSION,
-} from '@tuposoft/lead-email-finder-verification-contracts'
+} from '@lead-email-finder-internal/verification-contracts'
 import { EmailVerificationReason, EmailVerificationSource } from '@tuposoft/lead-email-finder/common'
 import { NewEmailVerification } from '../../domain/email-verification'
 

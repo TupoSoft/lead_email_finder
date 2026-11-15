@@ -1,4 +1,4 @@
-import type { ApiClient, components, paths } from '@tuposoft/lead-email-finder-api-client'
+import type { ApiClient, components, paths } from '../../api/client'
 import { ApiError } from '../../api/api-error'
 
 export type VerificationStatus =

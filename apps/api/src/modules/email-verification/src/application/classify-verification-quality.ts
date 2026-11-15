@@ -1,4 +1,4 @@
 export {
     classifyVerificationQuality,
     deriveEvidenceObservedAt,
-} from '@tuposoft/lead-email-finder-verification-contracts'
+} from '@lead-email-finder-internal/verification-contracts'

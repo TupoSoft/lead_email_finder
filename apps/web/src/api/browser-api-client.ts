@@ -1,4 +1,4 @@
-import { createApiClient, type ApiClient, type ClientOptions } from '@tuposoft/lead-email-finder-api-client'
+import { createApiClient, type ApiClient, type ClientOptions } from './client'
 
 export interface BrowserApiClientOptions {
     fetch?: ClientOptions['fetch']

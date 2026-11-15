@@ -1,4 +1,4 @@
-import type { VerificationCommand } from '@tuposoft/lead-email-finder-verification-contracts'
+import type { VerificationCommand } from '@lead-email-finder-internal/verification-contracts'
 import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm'
 
 /** Command publication is retried independently of the execution's result/settlement state. */

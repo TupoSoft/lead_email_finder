@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router'
 import { publicEntryCopy } from '../content/public-entry'
 import { authCopy } from '../content/auth-shell'
 import styles from './SiteHeader.module.css'
@@ -19,6 +19,9 @@ export function SiteHeader() {
                             <a href={`${destinationPrefix}#${item.target}`}>{item.label}</a>
                         </li>
                     ))}
+                    <li>
+                        <Link to="/sign-in">{authCopy.signIn}</Link>
+                    </li>
                     <li>
                         <Link to="/app">{authCopy.workspace}</Link>
                     </li>
