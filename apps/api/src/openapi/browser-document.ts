@@ -10,6 +10,8 @@ const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch'
 export const BROWSER_OPERATIONS = [
     { path: '/v1/auth/sign-in/magic-link', method: 'post' },
     { path: '/v1/auth/magic-link/verify', method: 'get' },
+    { path: '/v1/auth/sign-in/social', method: 'post' },
+    { path: '/v1/auth/callback/google', method: 'get' },
     { path: '/v1/auth/sign-out', method: 'post' },
     { path: '/v1/me', method: 'get' },
     { path: '/v1/billing/summary', method: 'get' },
@@ -214,6 +216,87 @@ export function withWorkerAuthentication(full: OpenAPIObject): OpenAPIObject {
                     },
                 },
                 '400': codeResponse('The token query or JSON redemption request is invalid.', 'invalid_request'),
+                '429': { description: 'The persistent authentication rate limit was exceeded.' },
+            },
+        },
+    }
+    source.paths['/v1/auth/sign-in/social'] = {
+        post: {
+            operationId: 'startGoogleSignIn',
+            summary: 'Start Google sign-in in the browser',
+            description:
+                'Starts the Google authorization-code redirect flow with state and PKCE. Requires the exact application Origin and application/json. Only Google and same-origin return destinations are accepted; the default success destination is /app. Direct ID-token sign-in and client-supplied OAuth options are unavailable.',
+            tags: ['Authentication'],
+            parameters: [originParameter],
+            security: [],
+            requestBody: {
+                required: true,
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['provider'],
+                            properties: {
+                                provider: { type: 'string', enum: ['google'] },
+                                callbackURL: { type: 'string' },
+                                newUserCallbackURL: { type: 'string' },
+                                errorCallbackURL: { type: 'string' },
+                            },
+                        },
+                    },
+                },
+            },
+            responses: {
+                '200': {
+                    ...jsonResponse('Navigate the browser to the Google authorization URL.', {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['url', 'redirect'],
+                        properties: {
+                            url: { type: 'string', format: 'uri' },
+                            redirect: { type: 'boolean', enum: [true] },
+                        },
+                    }),
+                    headers: cookieHeaders,
+                },
+                '400': codeResponse('The provider, JSON body, or return destination is invalid.', 'invalid_request'),
+                '403': codeResponse(
+                    'Origin is missing or does not exactly match the application origin.',
+                    'origin_not_allowed',
+                ),
+                '415': codeResponse('Content-Type must be application/json.', 'json_required'),
+                '429': { description: 'The persistent authentication rate limit was exceeded.' },
+                '503': codeResponse('Google sign-in could not be started; retry the request.', 'google_sign_in_failed'),
+            },
+        },
+    }
+    source.paths['/v1/auth/callback/google'] = {
+        get: {
+            operationId: 'completeGoogleSignIn',
+            summary: 'Complete Google sign-in in the browser',
+            description:
+                'Validates state and its browser cookie, exchanges the authorization code using PKCE, and requires a verified Google email before account creation or linking. Implicit linking requires a matching verified local email. Success redirects with an HttpOnly session cookie to the safe application destination; cancellation and failures return to sign-in. Provider tokens and session JSON are never returned.',
+            tags: ['Authentication'],
+            security: [],
+            parameters: ['code', 'state', 'error', 'error_description', 'iss'].map(name => ({
+                in: 'query' as const,
+                name,
+                required: false,
+                schema: { type: 'string' as const },
+            })),
+            responses: {
+                '302': {
+                    description:
+                        'Redirects to the safe application destination, or to sign-in on cancellation or failure.',
+                    headers: {
+                        ...cookieHeaders,
+                        Location: {
+                            description: 'An absolute URL on the configured application origin.',
+                            schema: { type: 'string', format: 'uri' },
+                        },
+                    },
+                },
                 '429': { description: 'The persistent authentication rate limit was exceeded.' },
             },
         },

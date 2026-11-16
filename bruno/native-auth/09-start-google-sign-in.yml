@@ -1,0 +1,54 @@
+info:
+    name: start-google-sign-in
+    type: http
+    seq: 9
+http:
+    method: POST
+    url: '{{baseUrl}}/v1/auth/sign-in/social'
+    headers:
+        - name: Origin
+          value: '{{appOrigin}}'
+        - name: Content-Type
+          value: application/json
+    body:
+        type: json
+        data: |-
+            {
+                "provider": "google",
+                "callbackURL": "/app"
+            }
+settings:
+    followRedirects: false
+runtime:
+    assertions:
+        - expression: res.status
+          operator: eq
+          value: '200'
+        - expression: res.body.redirect
+          operator: eq
+          value: 'true'
+        - expression: Object.keys(res.body)
+          operator: length
+          value: '2'
+        - expression: new URL(res.body.url).origin
+          operator: eq
+          value: https://accounts.google.com
+        - expression: new URL(res.body.url).searchParams.get('redirect_uri')
+          operator: eq
+          value: '{{appOrigin}}/v1/auth/callback/google'
+        - expression: new URL(res.body.url).searchParams.get('state')
+          operator: isTruthy
+        - expression: new URL(res.body.url).searchParams.get('code_challenge')
+          operator: isTruthy
+        - expression: new URL(res.body.url).searchParams.get('code_challenge_method')
+          operator: eq
+          value: S256
+        - expression: JSON.stringify(res.headers['set-cookie'])
+          operator: contains
+          value: HttpOnly
+        - expression: JSON.stringify(res.headers['set-cookie'])
+          operator: contains
+          value: SameSite=Lax
+        - expression: res.headers['cache-control']
+          operator: eq
+          value: no-store

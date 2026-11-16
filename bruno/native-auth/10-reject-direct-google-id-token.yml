@@ -1,0 +1,30 @@
+info:
+    name: reject-direct-google-id-token
+    type: http
+    seq: 10
+http:
+    method: POST
+    url: '{{baseUrl}}/v1/auth/sign-in/social'
+    headers:
+        - name: Origin
+          value: '{{appOrigin}}'
+        - name: Content-Type
+          value: application/json
+    body:
+        type: json
+        data: |-
+            {
+                "provider": "google",
+                "idToken": { "token": "synthetic-token" }
+            }
+runtime:
+    assertions:
+        - expression: res.status
+          operator: eq
+          value: '400'
+        - expression: res.body.code
+          operator: eq
+          value: invalid_request
+        - expression: Object.keys(res.body)
+          operator: length
+          value: '1'

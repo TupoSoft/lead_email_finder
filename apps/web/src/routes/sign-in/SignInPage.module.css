@@ -5,3 +5,7 @@
 .address {
     overflow-wrap: anywhere;
 }
+
+.google {
+    gap: var(--space-control-gap);
+}

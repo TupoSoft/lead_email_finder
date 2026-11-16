@@ -4,6 +4,7 @@ import { ApiError } from '../../api/api-error'
 import { ApplicationFrame } from '../../app/ApplicationFrame'
 import { signInCopy } from '../../content/auth-shell'
 import { safeDestination } from '../../features/auth/destination'
+import { requestGoogleSignIn } from '../../features/auth/google-sign-in'
 import { requestMagicLink } from '../../features/auth/magic-link'
 import { useAuth } from '../../features/auth/use-auth'
 import { Stack } from '../../shared/Stack'
@@ -22,11 +23,15 @@ export function SignInPage() {
     const destination = safeDestination(parameters.get('destination'))
     const [email, setEmail] = useState('')
     const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null)
-    const [pending, setPending] = useState(false)
+    const [pendingMethod, setPendingMethod] = useState<'magic-link' | 'google' | null>(null)
     const [invalidEmail, setInvalidEmail] = useState(false)
-    const [feedback, setFeedback] = useState<string | null>(() =>
-        parameters.has('error') ? signInCopy.invalidLink : null,
-    )
+    const [feedback, setFeedback] = useState<string | null>(() => {
+        if (parameters.get('error') === 'google-sign-in') {
+            return signInCopy.googleError
+        }
+
+        return parameters.has('error') ? signInCopy.invalidLink : null
+    })
     const [retryAt, setRetryAt] = useState<number>()
     const request = useRef<AbortController | null>(null)
     const mounted = useRef(true)
@@ -34,6 +39,7 @@ export function SignInPage() {
     const confirmation = useRef<HTMLDivElement>(null)
     const { online } = useBrowserAvailability()
     const rateLimited = useRetryTime(retryAt)
+    const pending = pendingMethod !== null
     const disabled = pending || rateLimited || !online
 
     useEffect(() => {
@@ -59,7 +65,7 @@ export function SignInPage() {
         const controller = new AbortController()
         const timeout = window.setTimeout(() => controller.abort(), 20_000)
         request.current = controller
-        setPending(true)
+        setPendingMethod('magic-link')
         setFeedback(null)
 
         try {
@@ -86,7 +92,41 @@ export function SignInPage() {
             request.current = null
 
             if (mounted.current) {
-                setPending(false)
+                setPendingMethod(null)
+            }
+        }
+    }
+
+    async function signInWithGoogle(): Promise<void> {
+        if (request.current || rateLimited || !online) return
+
+        const controller = new AbortController()
+        const timeout = window.setTimeout(() => controller.abort(), 20_000)
+        request.current = controller
+        setPendingMethod('google')
+        setFeedback(null)
+
+        try {
+            const url = await requestGoogleSignIn(api, destination, controller.signal)
+
+            if (controller.signal.aborted || !mounted.current) return
+
+            window.location.assign(url)
+        } catch (error: unknown) {
+            if (!mounted.current) return
+
+            if (error instanceof ApiError && error.status === 429) {
+                setRetryAt(error.retryAt ?? Date.now() + 60_000)
+                setFeedback(signInCopy.rateLimited)
+            } else {
+                setFeedback(signInCopy.googleError)
+            }
+        } finally {
+            window.clearTimeout(timeout)
+            request.current = null
+
+            if (mounted.current) {
+                setPendingMethod(null)
             }
         }
     }
@@ -119,6 +159,34 @@ export function SignInPage() {
                 <div className={styles.content}>
                     <Stack>
                         {!online ? <SupportingText role="status">{signInCopy.offline}</SupportingText> : null}
+                        <div className={form.actions}>
+                            <button
+                                className={`${action.action} ${action.secondary} ${styles.google}`}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => void signInWithGoogle()}
+                            >
+                                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24">
+                                    <path
+                                        fill="#4285f4"
+                                        d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.33 2.98-7.36Z"
+                                    />
+                                    <path
+                                        fill="#34a853"
+                                        d="M12 22c2.7 0 4.96-.9 6.62-2.41l-3.24-2.51c-.9.6-2.04.97-3.38.97-2.6 0-4.8-1.76-5.59-4.12H3.07v2.59A10 10 0 0 0 12 22Z"
+                                    />
+                                    <path
+                                        fill="#fbbc05"
+                                        d="M6.41 13.93A6 6 0 0 1 6.1 12c0-.67.11-1.32.31-1.93V7.48H3.07A10 10 0 0 0 2 12c0 1.61.38 3.14 1.07 4.52l3.34-2.59Z"
+                                    />
+                                    <path
+                                        fill="#ea4335"
+                                        d="M12 5.95c1.47 0 2.79.51 3.82 1.5l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.48l3.34 2.59C7.2 7.71 9.4 5.95 12 5.95Z"
+                                    />
+                                </svg>
+                                {signInCopy.google}
+                            </button>
+                        </div>
                         {confirmationEmail ? (
                             <Stack>
                                 <div ref={confirmation} tabIndex={-1}>
@@ -192,7 +260,11 @@ export function SignInPage() {
                             </form>
                         )}
                         <div aria-live="polite">
-                            {pending ? <SupportingText>{signInCopy.pending}</SupportingText> : null}
+                            {pending ? (
+                                <SupportingText>
+                                    {pendingMethod === 'google' ? signInCopy.googlePending : signInCopy.pending}
+                                </SupportingText>
+                            ) : null}
                             {feedback ? <SupportingText role="status">{feedback}</SupportingText> : null}
                         </div>
                     </Stack>

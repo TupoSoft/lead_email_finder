@@ -79,7 +79,7 @@ describe('application routes', () => {
         )
 
         expect(await screen.findByRole('heading', { name: 'You are signed out' })).toBeInTheDocument()
-        expect(screen.getByText(/Sign in with an email link/)).toBeInTheDocument()
+        expect(screen.getByText(/Sign in with Google or an email link/)).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Check session' })).toBeInTheDocument()
         expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in?destination=%2Fapp')
         expect(router.state.location.pathname).toBe('/app')

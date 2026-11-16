@@ -37,6 +37,8 @@ function environment(): WorkerEnvironment['Bindings'] {
         AUTH_EMAIL: captureEmail,
         APP_BASE_URL: origin,
         BETTER_AUTH_SECRET: secret,
+        GOOGLE_CLIENT_ID: 'test-google-client-id',
+        GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
     }
 }
 

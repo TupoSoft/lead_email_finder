@@ -8,7 +8,7 @@ export const authCopy = {
     home: 'Home',
     checkSession: 'Check session',
     signIn: 'Sign in',
-    signInGuidance: 'Sign in with an email link, or check for an existing session.',
+    signInGuidance: 'Sign in with Google or an email link, or check for an existing session.',
     signOut: 'Sign out',
     retry: 'Try again',
     notFoundTitle: 'Page not found',
@@ -64,7 +64,11 @@ export const personalTools = ['Run verifications', 'View verification results', 
 
 export const signInCopy = {
     title: 'Sign in or create an account',
-    description: 'Enter your email to get a sign-in link. New here? Your account is created when you use the link.',
+    description:
+        'Continue with Google or request an email sign-in link. New here? Your account is created when you sign in.',
+    google: 'Continue with Google',
+    googlePending: 'Opening Google sign-in…',
+    googleError: 'Google sign-in did not complete. Try again or use an email link.',
     email: 'Email address',
     help: 'The link works once and expires after five minutes.',
     invalidEmail: 'Enter a valid email address, such as name@example.com.',
@@ -79,6 +83,6 @@ export const signInCopy = {
     invalidLink: 'This link has expired or has already been used. Enter your email to request a new link.',
     deliveryError: 'We could not send your sign-in link. Try again.',
     requestError: 'We could not confirm delivery. Check your inbox or try again.',
-    rateLimited: 'Too many requests. Wait a moment before requesting another link.',
-    offline: 'You are offline. Reconnect to request a sign-in link.',
+    rateLimited: 'Too many sign-in requests. Wait a moment before trying again.',
+    offline: 'You are offline. Reconnect to sign in.',
 } as const

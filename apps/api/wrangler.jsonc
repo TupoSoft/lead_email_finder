@@ -10,7 +10,7 @@
         "AUTH_MAIL_FROM": "no-reply@example.test",
     },
     "secrets": {
-        "required": ["BETTER_AUTH_SECRET"],
+        "required": ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     },
     "d1_databases": [
         {
