@@ -5,9 +5,10 @@ import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
+import { ZodError } from 'zod'
 import app from './app'
 import { createAuth, requireApplicationMutation, requireVerifiedUser } from './auth'
-import type { WorkerEnvironment } from './environment'
+import { environmentSchema, type WorkerEnvironment } from './environment'
 import { createDatabase, type Database } from '@/database/connection'
 import { account, rateLimit, session, user, verification } from '@/database/schema'
 
@@ -25,6 +26,7 @@ function environment(baseUrl = origin): WorkerEnvironment['Bindings'] {
         BETTER_AUTH_SECRET: secret,
         GOOGLE_CLIENT_ID: 'test-google-client-id',
         GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+        INITIAL_CREDIT_ALLOWANCE: '10',
     }
 }
 
@@ -95,6 +97,116 @@ beforeEach(async () => {
     await database.delete(rateLimit)
 })
 
+describe('Worker environment schema', () => {
+    it('normalizes the origin, numeric allowance, and structured mail sender together', () => {
+        const configuration = {
+            ...environment('https://app.example.test/'),
+            INITIAL_CREDIT_ALLOWANCE: '25',
+            AUTH_MAIL_FROM: 'Lead Email Finder <no-reply@example.test>',
+        }
+
+        const parsed = environmentSchema.parse(configuration)
+
+        assert.equal(parsed.APP_BASE_URL, 'https://app.example.test')
+        assert.equal(parsed.INITIAL_CREDIT_ALLOWANCE, 25)
+        assert.deepEqual(parsed.AUTH_MAIL_FROM, { name: 'Lead Email Finder', email: 'no-reply@example.test' })
+        assert.equal(parsed.AUTH_EMAIL, configuration.AUTH_EMAIL)
+        assert.equal(parsed.BETTER_AUTH_SECRET, secret)
+    })
+
+    it('preserves explicit zero allowance and a plain email sender', () => {
+        const parsed = environmentSchema.parse({
+            ...environment(),
+            INITIAL_CREDIT_ALLOWANCE: '0',
+            AUTH_MAIL_FROM: 'no-reply@example.test',
+        })
+
+        assert.equal(parsed.INITIAL_CREDIT_ALLOWANCE, 0)
+        assert.equal(parsed.AUTH_MAIL_FROM, 'no-reply@example.test')
+    })
+
+    const invalidVariables: { field: string; values: unknown[]; message: string }[] = [
+        {
+            field: 'APP_BASE_URL',
+            values: [
+                undefined,
+                '',
+                'private-invalid-url',
+                'ftp://app.example.test',
+                'https://name:password@app.example.test',
+                'https://app.example.test/path',
+                'https://app.example.test/?private=query',
+                'https://app.example.test/#private-fragment',
+            ],
+            message: 'APP_BASE_URL must be an HTTP(S) origin.',
+        },
+        {
+            field: 'BETTER_AUTH_SECRET',
+            values: [undefined, null, 42, '', 'private-short-secret'],
+            message: 'BETTER_AUTH_SECRET must contain at least 32 characters.',
+        },
+        ...(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const).map(field => ({
+            field,
+            values: [undefined, null, 42, '', '   '],
+            message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+        })),
+        {
+            field: 'AUTH_MAIL_FROM',
+            values: [undefined],
+            message: 'AUTH_MAIL_FROM must be a single email address, optionally with a display name.',
+        },
+        {
+            field: 'AUTH_EMAIL',
+            values: [undefined],
+            message: 'AUTH_EMAIL must be an Email Service send binding.',
+        },
+    ]
+
+    for (const { field, values, message } of invalidVariables) {
+        it(`rejects missing or invalid ${field} with a fixed, field-specific issue`, () => {
+            for (const value of values) {
+                const configuration: Record<string, unknown> = { ...environment(), [field]: value }
+                const result = environmentSchema.safeParse(configuration)
+
+                assert.equal(result.success, false)
+                assert.ok(result.error)
+                assert.deepEqual(
+                    result.error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                    [{ path: [field], message }],
+                )
+            }
+        })
+    }
+
+    it('keeps invalid credentials, sender details, and URL contents out of configuration errors', () => {
+        const configuration = {
+            ...environment(),
+            APP_BASE_URL: 'https://private-user:private-password@app.example.test/private-path?private-query',
+            BETTER_AUTH_SECRET: 'private-short-secret',
+            GOOGLE_CLIENT_SECRET: { privateCredential: 'private-google-secret' },
+            INITIAL_CREDIT_ALLOWANCE: 'private-allowance',
+            AUTH_MAIL_FROM: 'private-sender@example.test\r\nBcc: private-recipient@example.test',
+            AUTH_EMAIL: { send: 'private-binding-value' },
+        }
+
+        const result = environmentSchema.safeParse(configuration)
+
+        assert.equal(result.success, false)
+        assert.ok(result.error)
+        assert.deepEqual(result.error.issues.map(issue => issue.path[0]).sort(), [
+            'APP_BASE_URL',
+            'AUTH_EMAIL',
+            'AUTH_MAIL_FROM',
+            'BETTER_AUTH_SECRET',
+            'GOOGLE_CLIENT_SECRET',
+            'INITIAL_CREDIT_ALLOWANCE',
+        ])
+        assert.ok(!result.error.message.includes('private-'))
+        assert.ok(!JSON.stringify(result.error).includes('private-'))
+        assert.ok(result.error.issues.every(issue => !('input' in issue)))
+    })
+})
+
 describe('D1 Better Auth sessions', () => {
     for (const field of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const) {
         for (const value of [undefined, '', '   ']) {
@@ -109,7 +221,20 @@ describe('D1 Better Auth sessions', () => {
 
                 assert.throws(
                     () => createAuth(database, configuration),
-                    /GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured/,
+                    (error: unknown) => {
+                        assert.ok(error instanceof ZodError)
+                        assert.deepEqual(
+                            error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                            [
+                                {
+                                    path: [field],
+                                    message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+                                },
+                            ],
+                        )
+
+                        return true
+                    },
                 )
             })
         }

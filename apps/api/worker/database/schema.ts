@@ -1,4 +1,5 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const user = sqliteTable('users', {
     id: text('id').primaryKey(),
@@ -71,3 +72,45 @@ export const rateLimit = sqliteTable('auth_rate_limits', {
     count: integer('count').notNull(),
     lastRequest: integer('last_request').notNull(),
 })
+
+export const creditAccount = sqliteTable(
+    'credit_accounts',
+    {
+        userId: text('user_id')
+            .primaryKey()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        balance: integer('balance').notNull().default(0),
+        reserved: integer('reserved').notNull().default(0),
+        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    },
+    table => [
+        check(
+            'credit_accounts_balance_valid',
+            sql`typeof(${table.balance}) = 'integer' and ${table.balance} between 0 and 9007199254740991`,
+        ),
+        check(
+            'credit_accounts_reserved_valid',
+            sql`typeof(${table.reserved}) = 'integer' and ${table.reserved} between 0 and ${table.balance}`,
+        ),
+    ],
+)
+
+// This receipt is also the initial grant record. Zero is a completed decision, not a pending grant.
+export const creditProvisioningReceipt = sqliteTable(
+    'credit_provisioning_receipts',
+    {
+        userId: text('user_id')
+            .primaryKey()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        id: text('id').notNull().unique(),
+        allowance: integer('allowance').notNull(),
+        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    },
+    table => [
+        check(
+            'credit_provisioning_allowance_valid',
+            sql`typeof(${table.allowance}) = 'integer' and ${table.allowance} between 0 and 9007199254740991`,
+        ),
+    ],
+)

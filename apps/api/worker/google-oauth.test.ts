@@ -53,6 +53,7 @@ function environment(): WorkerEnvironment['Bindings'] {
         BETTER_AUTH_SECRET: secret,
         GOOGLE_CLIENT_ID: clientId,
         GOOGLE_CLIENT_SECRET: clientSecret,
+        INITIAL_CREDIT_ALLOWANCE: '10',
     }
 }
 
@@ -106,6 +107,18 @@ function accounts(): Promise<AccountRow[]> {
                access_token as accessToken, refresh_token as refreshToken, id_token as idToken
         from accounts
     `)
+}
+
+async function assertInitialCredits(userId: string, balance = 10): Promise<void> {
+    const creditAccounts = await database.all<{ userId: string; balance: number; reserved: number }>(sql`
+        select user_id as userId, balance, reserved from credit_accounts
+    `)
+    const grantReceipts = await database.all<{ userId: string; allowance: number }>(sql`
+        select user_id as userId, allowance from credit_provisioning_receipts
+    `)
+
+    assert.deepEqual(creditAccounts, [{ userId, balance, reserved: 0 }])
+    assert.deepEqual(grantReceipts, [{ userId, allowance: 10 }])
 }
 
 async function assertRejected(response: Response): Promise<void> {
@@ -309,11 +322,14 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(response.headers.get('cache-control'), 'no-store')
         assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
 
-        const canonicalId = await principal(response)
         const storedUsers = await users()
+        const canonicalId = storedUsers[0].id
         const storedAccounts = await accounts()
         const issued = codes.get(exchanges[0])
 
+        // Authentication must grant before bootstrap can repair an interrupted provision.
+        await assertInitialCredits(canonicalId)
+        assert.equal(await principal(response), canonicalId)
         assert.ok(issued)
         assert.deepEqual(storedUsers, [{ id: canonicalId, email: 'person@example.test', emailVerified: 1 }])
         assert.equal(storedAccounts.length, 1)
@@ -335,6 +351,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.notEqual(sessionCookie(repeated), sessionCookie(response))
         assert.equal((await users()).length, 1)
         assert.equal((await accounts()).length, 1)
+        await assertInitialCredits(canonicalId)
 
         const updated = (await accounts())[0]
         const refreshedTokens = codes.get(exchanges[1])
@@ -364,6 +381,61 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.deepEqual(await database.all(sql`select id from sessions`), [])
         assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic-private-provider-error'))
         assert.ok(!response.headers.get('location')?.includes('synthetic-private-provider-error'))
+    })
+
+    it('does not issue a session when credit provisioning fails and repairs on a fresh login', async () => {
+        const identity = { sub: 'credit-repair-google', email: 'credit-repair@example.test', email_verified: true }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await platform.env.DB.prepare(
+            "CREATE TRIGGER reject_oauth_credit_receipt BEFORE INSERT ON credit_provisioning_receipts BEGIN SELECT RAISE(ABORT, 'synthetic credit failure'); END",
+        ).run()
+
+        try {
+            const failed = await callback(await begin(), identity)
+
+            await assertRejected(failed)
+            assert.equal((await users()).length, 1)
+            assert.deepEqual(await database.all(sql`select id from sessions`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_provisioning_receipts`), [])
+            assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic credit failure'))
+        } finally {
+            await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_oauth_credit_receipt').run()
+        }
+
+        const recovered = await callback(await begin(), identity)
+        const canonicalId = (await users())[0].id
+
+        await assertInitialCredits(canonicalId)
+        assert.equal(await principal(recovered), canonicalId)
+    })
+
+    it('keeps a committed grant singular when session issuance fails after provisioning', async () => {
+        const identity = { sub: 'session-repair-google', email: 'session-repair@example.test', email_verified: true }
+        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await platform.env.DB.prepare(
+            "CREATE TRIGGER reject_oauth_session BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'synthetic session failure'); END",
+        ).run()
+
+        try {
+            const failed = await callback(await begin(), identity)
+
+            await assertRejected(failed)
+            assert.deepEqual(await database.all(sql`select id from sessions`), [])
+            await assertInitialCredits((await users())[0].id)
+        } finally {
+            await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_oauth_session').run()
+        }
+
+        const originalReceipts = await database.all(sql`select * from credit_provisioning_receipts`)
+        const recovered = await callback(await begin(), identity)
+        const canonicalId = (await users())[0].id
+
+        assert.equal(await principal(recovered), canonicalId)
+        await assertInitialCredits(canonicalId)
+        assert.deepEqual(await database.all(sql`select * from credit_provisioning_receipts`), originalReceipts)
     })
 
     it('rejects Google tokens with invalid signatures, audience, issuer, or expiry before persisting an identity', async () => {
@@ -451,6 +523,8 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(await callback(await begin(), identity))
             assert.deepEqual(await users(), [])
             assert.deepEqual(await accounts(), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_provisioning_receipts`), [])
 
             const verifiedLocal = await request(await magicLink(email))
             const canonicalId = await principal(verifiedLocal)
@@ -458,6 +532,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(await callback(await begin(), identity))
             assert.deepEqual(await accounts(), [])
             assert.deepEqual(await users(), [{ id: canonicalId, email, emailVerified: 1 }])
+            await assertInitialCredits(canonicalId)
         })
     }
 
@@ -490,6 +565,8 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         )
         assert.deepEqual(await users(), [{ id, email: 'local-unverified@example.test', emailVerified: 0 }])
         assert.deepEqual(await accounts(), [])
+        assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+        assert.deepEqual(await database.all(sql`select user_id from credit_provisioning_receipts`), [])
     })
 
     for (const firstMethod of ['magic-link', 'google']) {
@@ -499,9 +576,17 @@ describe('Google redirect OAuth through simulated provider transport', () => {
                 callback(await begin(), { sub: 'both-methods-google', email, email_verified: true })
             const magic = async (): Promise<Response> => request(await magicLink(email))
             const first = await (firstMethod === 'google' ? google() : magic())
+            const provisionedId = (await users())[0].id
+
+            await assertInitialCredits(provisionedId)
+
             const canonicalId = await principal(first)
+
+            await database.run(sql`update credit_accounts set balance = 4 where user_id = ${canonicalId}`)
+
             const second = await (firstMethod === 'google' ? magic() : google())
 
+            await assertInitialCredits(canonicalId, 4)
             assert.equal(await principal(second), canonicalId)
             assert.equal((await users()).length, 1)
             assert.deepEqual(
@@ -553,6 +638,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(arrivals, 3)
         assert.equal(successful.length, responses.length)
         assert.equal(storedUsers.length, 1)
+        await assertInitialCredits(storedUsers[0].id)
 
         for (const response of successful) {
             assert.equal(await principal(response), storedUsers[0].id)
@@ -564,6 +650,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(await principal(retryGoogle), storedUsers[0].id)
         assert.equal(await principal(retryMagic), storedUsers[0].id)
         assert.equal((await users()).length, 1)
+        await assertInitialCredits(storedUsers[0].id)
         assert.deepEqual(
             (await accounts()).map(row => row.userId),
             [storedUsers[0].id],

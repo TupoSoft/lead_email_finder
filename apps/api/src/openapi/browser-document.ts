@@ -20,7 +20,7 @@ export const BROWSER_OPERATIONS = [
     { path: '/health', method: 'get' },
 ] as const
 
-/** Supply the Worker auth contract while retained application operations still come from Nest. */
+/** Supply Worker identity and personal billing contracts while verification still comes from Nest. */
 export function withWorkerAuthentication(full: OpenAPIObject): OpenAPIObject {
     const source = structuredClone(full)
     const jsonResponse = (description: string, schema: object): ResponseObject => ({
@@ -71,6 +71,17 @@ export function withWorkerAuthentication(full: OpenAPIObject): OpenAPIObject {
             },
         },
     }
+    source.components.schemas.BillingSummaryResponseDto = {
+        type: 'object',
+        additionalProperties: false,
+        required: ['balance', 'reserved', 'available'],
+        properties: Object.fromEntries(
+            ['balance', 'reserved', 'available'].map(field => [
+                field,
+                { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+            ]),
+        ),
+    }
     source.components.securitySchemes ??= {}
     source.components.securitySchemes.native_session = {
         type: 'apiKey',
@@ -95,6 +106,32 @@ export function withWorkerAuthentication(full: OpenAPIObject): OpenAPIObject {
                 },
                 '401': codeResponse('Authentication is missing, expired, or revoked.', 'authentication_required'),
                 '403': codeResponse('The current user has not verified their email.', 'email_verification_required'),
+            },
+        },
+    }
+    source.paths['/v1/billing/summary'] = {
+        get: {
+            operationId: 'getBillingSummary',
+            summary: 'Read personal credit balance',
+            description:
+                "Returns the verified current user's balance, reserved credits, and available credits. Ownership comes only from the session. Atomically repairs missing provisioning; the durable receipt prevents repeated initial grants, including after a zero allowance or configuration change.",
+            tags: ['Billing'],
+            security: [{ native_session: [] }],
+            responses: {
+                '200': {
+                    ...jsonResponse('Personal credit balance.', {
+                        $ref: '#/components/schemas/BillingSummaryResponseDto',
+                    }),
+                    headers: cookieHeaders,
+                },
+                '401': codeResponse('Authentication is missing, expired, or revoked.', 'authentication_required'),
+                '403': codeResponse('The current user has not verified their email.', 'email_verification_required'),
+                '500': jsonResponse('Provisioning or the balance read failed; retry safely.', {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['status'],
+                    properties: { status: { type: 'string', enum: ['error'] } },
+                }),
             },
         },
     }

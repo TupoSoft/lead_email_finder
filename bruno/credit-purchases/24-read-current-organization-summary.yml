@@ -1,18 +1,22 @@
 info:
-    name: 24-read-current-organization-summary
+    name: 24-read-personal-summary
     type: http
     seq: 24
 
 http:
     method: GET
-    url: '{{baseUrl}}/v1/billing/summary?organizationId=00000000-0000-4000-8000-000000000001'
+    url: '{{baseUrl}}/v1/billing/summary?userId=00000000-0000-4000-8000-000000000001&organizationId=00000000-0000-4000-8000-000000000001'
+    headers:
+        - name: Cookie
+          value: '{{sessionCookie}}'
 
 runtime:
     scripts:
         - type: tests
           code: |-
-              test('derives the organization from the principal rather than request input', function() {
+              test('reads the current user balance without accepting ownership from request input', function() {
                 expect(res.status).to.equal(200);
+                expect(res.headers['cache-control']).to.equal('no-store');
                 expect(Object.keys(res.body).sort()).to.deep.equal(['available', 'balance', 'reserved']);
                 expect(res.body.balance).to.be.a('number');
                 expect(res.body.reserved).to.be.a('number');

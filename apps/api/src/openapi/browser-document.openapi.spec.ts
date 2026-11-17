@@ -30,6 +30,21 @@ describe('browser OpenAPI boundary', () => {
         expect(browser.paths).not.toHaveProperty('/v1/auth/session')
         expect(browser.paths).not.toHaveProperty('/v1/auth/get-session')
         expect(browser.paths['/v1/me'].get!.responses).toHaveProperty('403')
+        expect(browser.paths['/v1/billing/summary'].get).toMatchObject({
+            operationId: 'getBillingSummary',
+            security: [{ native_session: [] }],
+            responses: {
+                '200': {
+                    content: {
+                        'application/json': { schema: { $ref: '#/components/schemas/BillingSummaryResponseDto' } },
+                    },
+                    headers: { 'Cache-Control': expect.any(Object) },
+                },
+                '401': expect.any(Object),
+                '403': expect.any(Object),
+                '500': expect.any(Object),
+            },
+        })
         const userResponse = browser.components!.schemas!.CurrentUserResponseDto
         expect(userResponse).toMatchObject({
             additionalProperties: false,

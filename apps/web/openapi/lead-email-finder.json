@@ -207,19 +207,20 @@
         "type": "object"
       },
       "BillingSummaryResponseDto": {
+        "additionalProperties": false,
         "properties": {
           "available": {
-            "description": "Credits usable for new spending: balance minus reserved",
+            "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           },
           "balance": {
-            "description": "Total credits owned by the organization",
+            "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           },
           "reserved": {
-            "description": "Credits held by accepted operations, not yet charged",
+            "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           }
@@ -1291,8 +1292,8 @@
     },
     "/v1/billing/summary": {
       "get": {
-        "operationId": "BillingSummaryController_getSummary",
-        "parameters": [],
+        "description": "Returns the verified current user's balance, reserved credits, and available credits. Ownership comes only from the session. Atomically repairs missing provisioning; the durable receipt prevents repeated initial grants, including after a zero allowance or configuration change.",
+        "operationId": "getBillingSummary",
         "responses": {
           "200": {
             "content": {
@@ -1302,13 +1303,87 @@
                 }
               }
             },
-            "description": ""
+            "description": "Personal credit balance.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Prevents caching protected identity.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "Preserves session renewal or expiration cookies.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Authentication is required"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "authentication_required"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication is missing, expired, or revoked."
           },
           "403": {
-            "description": "Billing read permission is required"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "email_verification_required"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The current user has not verified their email."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Provisioning or the balance read failed; retry safely."
           }
         },
         "security": [
@@ -1316,7 +1391,7 @@
             "native_session": []
           }
         ],
-        "summary": "",
+        "summary": "Read personal credit balance",
         "tags": [
           "Billing"
         ]

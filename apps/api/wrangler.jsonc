@@ -6,6 +6,8 @@
     "compatibility_date": "2026-11-10",
     "compatibility_flags": ["nodejs_compat"],
     "vars": {
+        // Set INITIAL_CREDIT_ALLOWANCE explicitly in every environment, including local development.
+        // An explicit "0" records provisioning without a grant.
         "APP_BASE_URL": "http://127.0.0.1:5173",
         "AUTH_MAIL_FROM": "no-reply@example.test",
     },

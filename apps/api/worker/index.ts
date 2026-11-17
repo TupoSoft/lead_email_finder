@@ -1,10 +1,8 @@
 import { env } from 'cloudflare:workers'
 import app from './app'
-import { validateAuthMailConfiguration } from './auth-mail'
-import { validateAuthConfiguration } from './auth'
+import { environmentSchema } from './environment'
 
 // Fail before serving requests. Auth handlers still validate current bindings after configuration changes.
-validateAuthConfiguration(env)
-validateAuthMailConfiguration(env)
+environmentSchema.parse(env)
 
 export default app satisfies ExportedHandler<Env>

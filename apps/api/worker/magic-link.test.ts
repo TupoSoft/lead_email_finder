@@ -39,6 +39,7 @@ function environment(): WorkerEnvironment['Bindings'] {
         BETTER_AUTH_SECRET: secret,
         GOOGLE_CLIENT_ID: 'test-google-client-id',
         GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+        INITIAL_CREDIT_ALLOWANCE: '10',
     }
 }
 

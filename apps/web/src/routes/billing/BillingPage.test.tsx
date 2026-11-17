@@ -120,6 +120,83 @@ describe('billing routes', () => {
         expect(screen.queryByRole('button', { name: /Buy / })).not.toBeInTheDocument()
     })
 
+    it('displays a server-confirmed zero balance without a purchase flow', async () => {
+        const { fetch } = renderBilling({
+            intercept: request =>
+                new URL(request.url).pathname === '/v1/billing/summary'
+                    ? Response.json({ balance: 0, reserved: 0, available: 0 })
+                    : undefined,
+        })
+
+        const panel = await screen.findByRole('region', { name: 'Credit balance' })
+
+        expect(await within(panel).findByText('0')).toBeInTheDocument()
+        expect(within(panel).getByText('Reserved credits').nextElementSibling).toHaveTextContent('0 credits')
+        expect(within(panel).getByText('Total balance').nextElementSibling).toHaveTextContent('0 credits')
+        expect(screen.getByText('Review the credits in your personal account.')).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Buy|Pay|Checkout/ })).not.toBeInTheDocument()
+        expect(requestsFor(fetch, '/v1/billing/summary')[0].cache).toBe('no-store')
+    })
+
+    it('discards a previous user’s late balance response when bootstrap changes the personal account', async () => {
+        let currentAccount = account
+        let completePreviousBalance!: (response: Response) => void
+        let balanceReads = 0
+        const previousBalance = new Promise<Response>(resolve => {
+            completePreviousBalance = resolve
+        })
+        const { session } = renderBilling({
+            intercept: request => {
+                const path = new URL(request.url).pathname
+
+                if (path === '/v1/me') {
+                    return Response.json(currentAccount)
+                }
+
+                if (path === '/v1/billing/summary') {
+                    balanceReads += 1
+
+                    return balanceReads === 1
+                        ? previousBalance
+                        : Response.json({ balance: 3, reserved: 0, available: 3 })
+                }
+
+                return undefined
+            },
+        })
+
+        const initialPanel = await screen.findByRole('region', { name: 'Credit balance' })
+
+        expect(within(initialPanel).getByText(productCopy.loading)).toBeInTheDocument()
+        expect(within(initialPanel).queryByText('10')).not.toBeInTheDocument()
+
+        currentAccount = {
+            user: { ...account.user, id: 'user-b', email: 'other@example.test', name: 'Other user' },
+        }
+
+        await act(async () => {
+            await session.bootstrap()
+        })
+
+        const currentPanel = await screen.findByRole('region', { name: 'Credit balance' })
+
+        expect(await within(currentPanel).findByText('3')).toBeInTheDocument()
+        expect(screen.getByText('other@example.test')).toBeInTheDocument()
+
+        await act(async () => {
+            completePreviousBalance(Response.json({ balance: 99, reserved: 0, available: 99 }))
+            await previousBalance
+        })
+
+        expect(within(currentPanel).queryByText('99')).not.toBeInTheDocument()
+        expect(session.queryClient.getQueryData(billingQueryKeys.summary(account.user.id))).toBeUndefined()
+        expect(session.queryClient.getQueryData(billingQueryKeys.summary(currentAccount.user.id))).toEqual({
+            balance: 3,
+            reserved: 0,
+            available: 3,
+        })
+    })
+
     it('shows billing navigation for a verified personal account', async () => {
         const { fetch } = renderBilling()
         expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument()
