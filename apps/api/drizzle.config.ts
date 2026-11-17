@@ -34,5 +34,6 @@ export default defineConfig({
         'auth_rate_limits',
         'credit_accounts',
         'credit_provisioning_receipts',
+        'credit_ledger',
     ],
 })

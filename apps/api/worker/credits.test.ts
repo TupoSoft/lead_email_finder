@@ -14,8 +14,16 @@ import { createDatabase, type Database } from '@/database/connection'
 const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
 
-type CreditAccount = { userId: string; balance: number; reserved: number }
+type CreditAccount = { userId: string; reserved: number }
 type ProvisioningReceipt = { userId: string; id: string; allowance: number }
+type LedgerEntry = {
+    id: string
+    userId: string
+    operationId: string
+    delta: number
+    reason: string
+    createdAt: number
+}
 
 let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>
 let database: Database
@@ -60,7 +68,21 @@ async function seedSession(verified = true): Promise<{ userId: string; cookie: s
 
 function accounts(): Promise<CreditAccount[]> {
     return database.all<CreditAccount>(sql`
-        select user_id as userId, balance, reserved from credit_accounts order by user_id
+        select user_id as userId, reserved from credit_accounts order by user_id
+    `)
+}
+
+function ledgerEntries(): Promise<LedgerEntry[]> {
+    return database.all<LedgerEntry>(sql`
+        select id, user_id as userId, operation_id as operationId, delta, reason, created_at as createdAt
+        from credit_ledger order by user_id, operation_id, id
+    `)
+}
+
+async function appendCredit(userId: string, delta: number, operationId: string = randomUUID()): Promise<void> {
+    await database.run(sql`
+        insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+        values (${randomUUID()}, ${userId}, ${operationId}, ${delta}, 'test_adjustment', ${Date.now()})
     `)
 }
 
@@ -87,11 +109,12 @@ afterAll(async () => {
 
 async function clearFailureTriggers(): Promise<void> {
     await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_credit_receipt').run()
-    await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_credit_balance').run()
+    await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_credit_ledger').run()
 }
 
 beforeEach(async () => {
     await clearFailureTriggers()
+    await database.run(sql`delete from credit_ledger`)
     await database.run(sql`delete from credit_provisioning_receipts`)
     await database.run(sql`delete from credit_accounts`)
     await database.run(sql`delete from sessions`)
@@ -183,15 +206,45 @@ describe('initial credit allowance configuration', () => {
 })
 
 describe('durable personal credit provisioning on D1', () => {
+    it('stores account metadata without a cached balance column', async () => {
+        const columns = await database.all<{ name: string }>(sql`pragma table_info(credit_accounts)`)
+
+        assert.ok(columns.some(column => column.name === 'reserved'))
+        assert.ok(!columns.some(column => column.name === 'balance'))
+    })
+
+    it('reports zero for an account with no ledger entries', async () => {
+        const { userId } = await seedSession()
+        const now = Date.now()
+
+        await database.run(sql`
+            insert into credit_accounts (user_id, reserved, created_at, updated_at)
+            values (${userId}, 0, ${now}, ${now})
+        `)
+
+        const summary = await credits.getSummary(userId)
+
+        assert.deepEqual(summary, { balance: 0, reserved: 0, available: 0 })
+        assert.deepEqual(await ledgerEntries(), [])
+    })
+
     it('grants once during concurrent bootstrap and exposes only the personal summary', async () => {
         const { userId, cookie } = await seedSession()
 
         const responses = await Promise.all(Array.from({ length: 12 }, () => request('/v1/me', cookie)))
 
         assert.ok(responses.every(response => response.status === 200))
-        assert.deepEqual(await accounts(), [{ userId, balance: 10, reserved: 0 }])
+        assert.deepEqual(await accounts(), [{ userId, reserved: 0 }])
         assert.equal((await receipts()).length, 1)
         assert.partialDeepStrictEqual((await receipts())[0], { userId, allowance: 10 })
+        assert.equal((await ledgerEntries()).length, 1)
+        assert.partialDeepStrictEqual((await ledgerEntries())[0], {
+            id: (await receipts())[0].id,
+            userId,
+            operationId: 'initial-allowance',
+            delta: 10,
+            reason: 'initial_allowance',
+        })
 
         const summary = await request('/v1/billing/summary', cookie)
 
@@ -207,12 +260,17 @@ describe('durable personal credit provisioning on D1', () => {
 
         const originalReceipts = await receipts()
         const originalAccounts = await accounts()
+        const initialLedger = await ledgerEntries()
 
         assert.equal(originalReceipts.length, 1)
         assert.equal(originalAccounts.length, 1)
-        assert.equal(originalAccounts[0].balance, originalReceipts[0].allowance)
+        assert.equal(initialLedger.length, 1)
+        assert.equal(initialLedger[0].delta, originalReceipts[0].allowance)
+        assert.equal((await credits.getSummary(userId)).balance, originalReceipts[0].allowance)
 
-        await database.run(sql`update credit_accounts set balance = 0 where user_id = ${userId}`)
+        await appendCredit(userId, -originalReceipts[0].allowance)
+
+        const spentLedger = await ledgerEntries()
 
         const retries = await Promise.all([
             request('/v1/me', cookie, '99'),
@@ -222,17 +280,19 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.ok(retries.every(response => response.status === 200))
         assert.deepEqual(await receipts(), originalReceipts)
-        assert.deepEqual(await accounts(), [{ userId, balance: 0, reserved: 0 }])
+        assert.deepEqual(await accounts(), originalAccounts)
+        assert.deepEqual(await ledgerEntries(), spentLedger)
+        assert.deepEqual(await credits.getSummary(userId), { balance: 0, reserved: 0, available: 0 })
     })
 
-    for (const failure of ['receipt', 'balance'] as const) {
+    for (const failure of ['receipt', 'ledger'] as const) {
         it(`rolls back the entire provision when the ${failure} write fails, then repairs on bootstrap`, async () => {
             const { userId, cookie } = await seedSession()
             const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
             const trigger =
                 failure === 'receipt'
                     ? "CREATE TRIGGER reject_credit_receipt BEFORE INSERT ON credit_provisioning_receipts BEGIN SELECT RAISE(ABORT, 'synthetic receipt failure'); END"
-                    : "CREATE TRIGGER reject_credit_balance BEFORE UPDATE OF balance ON credit_accounts BEGIN SELECT RAISE(ABORT, 'synthetic balance failure'); END"
+                    : "CREATE TRIGGER reject_credit_ledger BEFORE INSERT ON credit_ledger BEGIN SELECT RAISE(ABORT, 'synthetic ledger failure'); END"
 
             await platform.env.DB.prepare(trigger).run()
 
@@ -241,6 +301,7 @@ describe('durable personal credit provisioning on D1', () => {
             assert.equal(failed.status, 500)
             assert.deepEqual(await accounts(), [])
             assert.deepEqual(await receipts(), [])
+            assert.deepEqual(await ledgerEntries(), [])
             assert.deepEqual(await failed.json(), { status: 'error' })
             assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic'))
 
@@ -249,8 +310,10 @@ describe('durable personal credit provisioning on D1', () => {
             const repaired = await request('/v1/me', cookie)
 
             assert.equal(repaired.status, 200)
-            assert.deepEqual(await accounts(), [{ userId, balance: 10, reserved: 0 }])
+            assert.deepEqual(await accounts(), [{ userId, reserved: 0 }])
             assert.equal((await receipts()).length, 1)
+            assert.equal((await ledgerEntries()).length, 1)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
         })
     }
 
@@ -259,13 +322,16 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.deepEqual(await accounts(), [])
         assert.deepEqual(await receipts(), [])
+        assert.deepEqual(await ledgerEntries(), [])
 
         const response = await request('/v1/billing/summary', cookie, '7')
 
         assert.equal(response.status, 200)
         assert.deepEqual(await response.json(), { balance: 7, reserved: 0, available: 7 })
-        assert.deepEqual(await accounts(), [{ userId, balance: 7, reserved: 0 }])
+        assert.deepEqual(await accounts(), [{ userId, reserved: 0 }])
         assert.partialDeepStrictEqual((await receipts())[0], { userId, allowance: 7 })
+        assert.equal((await ledgerEntries()).length, 1)
+        assert.partialDeepStrictEqual((await ledgerEntries())[0], { userId, delta: 7 })
     })
 
     it('records zero allowance durably and never grants after configuration increases', async () => {
@@ -273,15 +339,25 @@ describe('durable personal credit provisioning on D1', () => {
 
         const zero = await request('/v1/me', cookie, '0')
         const originalReceipts = await receipts()
+        const originalLedger = await ledgerEntries()
         const changed = await request('/v1/billing/summary', cookie, '50')
 
         assert.equal(zero.status, 200)
         assert.equal(originalReceipts.length, 1)
         assert.partialDeepStrictEqual(originalReceipts[0], { userId, allowance: 0 })
+        assert.equal(originalLedger.length, 1)
+        assert.partialDeepStrictEqual(originalLedger[0], {
+            id: originalReceipts[0].id,
+            userId,
+            operationId: 'initial-allowance',
+            delta: 0,
+            reason: 'initial_allowance',
+        })
         assert.equal(changed.status, 200)
         assert.deepEqual(await changed.json(), { balance: 0, reserved: 0, available: 0 })
-        assert.deepEqual(await accounts(), [{ userId, balance: 0, reserved: 0 }])
+        assert.deepEqual(await accounts(), [{ userId, reserved: 0 }])
         assert.deepEqual(await receipts(), originalReceipts)
+        assert.deepEqual(await ledgerEntries(), originalLedger)
     })
 
     it('scopes balances to the authenticated user and ignores attempted user selection', async () => {
@@ -290,6 +366,9 @@ describe('durable personal credit provisioning on D1', () => {
 
         await credits.provision(first.userId, 20)
         await credits.provision(second.userId, 3)
+        await appendCredit(first.userId, 8)
+        await appendCredit(first.userId, -5)
+        await appendCredit(second.userId, -2)
         await database.run(sql`update credit_accounts set reserved = 4 where user_id = ${first.userId}`)
 
         const firstResponse = await request(`/v1/billing/summary?userId=${second.userId}`, first.cookie)
@@ -297,10 +376,117 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.equal(firstResponse.status, 200)
         assert.equal(secondResponse.status, 200)
-        assert.deepEqual(await firstResponse.json(), { balance: 20, reserved: 4, available: 16 })
-        assert.deepEqual(await secondResponse.json(), { balance: 3, reserved: 0, available: 3 })
+        assert.deepEqual(await firstResponse.json(), { balance: 23, reserved: 4, available: 19 })
+        assert.deepEqual(await secondResponse.json(), { balance: 1, reserved: 0, available: 1 })
         assert.equal((await accounts()).length, 2)
         assert.equal((await receipts()).length, 2)
+        assert.equal((await ledgerEntries()).length, 5)
+    })
+
+    it('enforces operation uniqueness within each user account', async () => {
+        const first = await seedSession()
+        const second = await seedSession()
+        const operationId = 'shared-operation-reference'
+
+        await credits.provision(first.userId, 10)
+        await credits.provision(second.userId, 10)
+        await appendCredit(first.userId, 4, operationId)
+        await appendCredit(second.userId, 7, operationId)
+
+        await assert.rejects(() => appendCredit(first.userId, 999, operationId))
+
+        assert.deepEqual(await credits.getSummary(first.userId), { balance: 14, reserved: 0, available: 14 })
+        assert.deepEqual(await credits.getSummary(second.userId), { balance: 17, reserved: 0, available: 17 })
+        assert.equal((await ledgerEntries()).length, 4)
+    })
+
+    const invalidTotals = [
+        { name: 'negative balance', allowance: 10, adjustment: -11, reserved: 0 },
+        { name: 'unsafe integer balance', allowance: Number.MAX_SAFE_INTEGER, adjustment: 1, reserved: 0 },
+        { name: 'reserved credits exceeding the balance', allowance: 10, adjustment: -8, reserved: 3 },
+    ]
+
+    for (const { name, allowance, adjustment, reserved } of invalidTotals) {
+        it(`fails closed when the ledger produces ${name}`, async () => {
+            const { userId, cookie } = await seedSession()
+            vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+            await credits.provision(userId, allowance)
+            await appendCredit(userId, adjustment)
+            await database.run(sql`update credit_accounts set reserved = ${reserved} where user_id = ${userId}`)
+
+            const originalReceipts = await receipts()
+            const originalLedger = await ledgerEntries()
+
+            await assert.rejects(() => credits.getSummary(userId))
+
+            const response = await request('/v1/billing/summary', cookie)
+
+            assert.equal(response.status, 500)
+            assert.deepEqual(await response.json(), { status: 'error' })
+            assert.deepEqual(await receipts(), originalReceipts)
+            assert.deepEqual(await ledgerEntries(), originalLedger)
+        })
+    }
+
+    it('fails closed when SQLite cannot represent the ledger aggregate', async () => {
+        const { userId, cookie } = await seedSession()
+        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await credits.provision(userId, 10)
+        await database.run(sql`
+            with recursive entries(number) as (
+                select 1
+                union all
+                select number + 1 from entries where number < 1025
+            )
+            insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+            select 'overflow-entry-' || number, ${userId}, 'overflow-operation-' || number,
+                ${Number.MAX_SAFE_INTEGER}, 'test_adjustment', ${Date.now()}
+            from entries
+        `)
+
+        await assert.rejects(() => credits.getSummary(userId))
+
+        const response = await request('/v1/billing/summary', cookie)
+
+        assert.equal(response.status, 500)
+        assert.deepEqual(await response.json(), { status: 'error' })
+        assert.equal((await receipts()).length, 1)
+        assert.equal((await ledgerEntries()).length, 1026)
+    })
+
+    it('preserves an existing initial grant and rolls back a conflicting receipt repair', async () => {
+        const { userId, cookie } = await seedSession()
+        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await credits.provision(userId, 10)
+
+        const originalLedger = await ledgerEntries()
+
+        // Simulate inconsistent pre-existing data without changing the committed grant.
+        await database.run(sql`delete from credit_provisioning_receipts where user_id = ${userId}`)
+
+        const response = await request('/v1/me', cookie, '99')
+
+        assert.equal(response.status, 500)
+        assert.deepEqual(await response.json(), { status: 'error' })
+        assert.deepEqual(await receipts(), [])
+        assert.deepEqual(await ledgerEntries(), originalLedger)
+        assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
+    })
+
+    it('rejects fractional and unsafe signed ledger deltas at the database boundary', async () => {
+        const { userId } = await seedSession()
+
+        await credits.provision(userId, 10)
+
+        for (const delta of [0.5, Number.MAX_SAFE_INTEGER + 1, -Number.MAX_SAFE_INTEGER - 1]) {
+            await assert.rejects(() => appendCredit(userId, delta))
+        }
+
+        assert.equal((await ledgerEntries()).length, 1)
+        assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
     })
 
     it('denies unauthenticated and unverified callers without provisioning accounts or receipts', async () => {
@@ -317,6 +503,7 @@ describe('durable personal credit provisioning on D1', () => {
         assert.equal(unverified.headers.get('cache-control'), 'no-store')
         assert.deepEqual(await accounts(), [])
         assert.deepEqual(await receipts(), [])
+        assert.deepEqual(await ledgerEntries(), [])
     })
 
     it('requires persisted email verification even when provisioning is called without HTTP middleware', async () => {
@@ -327,6 +514,7 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.deepEqual(await accounts(), [])
         assert.deepEqual(await receipts(), [])
+        assert.deepEqual(await ledgerEntries(), [])
         await assert.rejects(() => credits.getSummary(userId))
     })
 })

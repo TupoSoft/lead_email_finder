@@ -14,12 +14,12 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
         const receiptId = crypto.randomUUID()
         const now = Date.now()
 
-        // D1 batches are transactions. The unique user receipt selects the winning grant;
-        // the attempt ID prevents retries or competing configurations from applying it again.
+        // The unique user receipt selects the winning allowance. Its attempt ID gates the
+        // ledger append, so the account, receipt, and initial movement commit together once.
         const statements = [
             sql`
-                insert into credit_accounts (user_id, balance, reserved, created_at, updated_at)
-                select id, 0, 0, ${now}, ${now} from users
+                insert into credit_accounts (user_id, reserved, created_at, updated_at)
+                select id, 0, ${now}, ${now} from users
                 where id = ${userId} and email_verified = 1
                 on conflict (user_id) do nothing
             `,
@@ -30,12 +30,10 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
                 on conflict (user_id) do nothing
             `,
             sql`
-                update credit_accounts
-                set balance = balance + ${allowance}, updated_at = ${now}
-                where user_id = ${userId} and exists (
-                    select 1 from credit_provisioning_receipts
-                    where user_id = ${userId} and id = ${receiptId}
-                )
+                insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+                select id, user_id, 'initial-allowance', allowance, 'initial_allowance', created_at
+                from credit_provisioning_receipts
+                where user_id = ${userId} and id = ${receiptId}
             `,
         ]
         const dialect = new SQLiteAsyncDialect()
@@ -51,12 +49,24 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
 
     async getSummary(userId: string): Promise<CreditSummary> {
         const summary = await this.database.get<CreditSummary>(sql`
-            select balance, reserved, balance - reserved as available
-            from credit_accounts where user_id = ${userId}
+            select coalesce(sum(ledger.delta), 0) as balance, account.reserved,
+                   coalesce(sum(ledger.delta), 0) - account.reserved as available
+            from credit_accounts as account
+            left join credit_ledger as ledger on ledger.user_id = account.user_id
+            where account.user_id = ${userId}
+            group by account.user_id, account.reserved
         `)
 
         if (!summary) {
             throw new Error('The personal credit account has not been provisioned.')
+        }
+
+        const validAmounts = [summary.balance, summary.reserved, summary.available].every(
+            amount => Number.isSafeInteger(amount) && amount >= 0,
+        )
+
+        if (!validAmounts) {
+            throw new Error('The personal credit ledger has an invalid balance or reservation.')
         }
 
         return summary

@@ -79,26 +79,20 @@ export const creditAccount = sqliteTable(
         userId: text('user_id')
             .primaryKey()
             .references(() => user.id, { onDelete: 'cascade' }),
-        balance: integer('balance').notNull().default(0),
         reserved: integer('reserved').notNull().default(0),
         createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
         updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
     },
     table => [
         check(
-            'credit_accounts_balance_valid',
-            // language=SQLite prefix="SELECT 1 WHERE "
-            sql`typeof(${table.balance}) = 'integer' and ${table.balance} between 0 and 9007199254740991`,
-        ),
-        check(
             'credit_accounts_reserved_valid',
             // language=SQLite prefix="SELECT 1 WHERE "
-            sql`typeof(${table.reserved}) = 'integer' and ${table.reserved} between 0 and ${table.balance}`,
+            sql`typeof(${table.reserved}) = 'integer' and ${table.reserved} between 0 and 9007199254740991`,
         ),
     ],
 )
 
-// This receipt is also the initial grant record. Zero is a completed decision, not a pending grant.
+// Zero is a completed provisioning decision, not a pending grant.
 export const creditProvisioningReceipt = sqliteTable(
     'credit_provisioning_receipts',
     {
@@ -114,6 +108,29 @@ export const creditProvisioningReceipt = sqliteTable(
             'credit_provisioning_allowance_valid',
             // language=SQLite prefix="SELECT 1 WHERE "
             sql`typeof(${table.allowance}) = 'integer' and ${table.allowance} between 0 and 9007199254740991`,
+        ),
+    ],
+)
+
+// Balance movements are appended; corrections are new entries rather than edits to history.
+export const creditLedger = sqliteTable(
+    'credit_ledger',
+    {
+        id: text('id').primaryKey(),
+        userId: text('user_id')
+            .notNull()
+            .references(() => creditAccount.userId, { onDelete: 'cascade' }),
+        operationId: text('operation_id').notNull(),
+        delta: integer('delta').notNull(),
+        reason: text('reason').notNull(),
+        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    },
+    table => [
+        uniqueIndex('credit_ledger_user_operation_uidx').on(table.userId, table.operationId),
+        check(
+            'credit_ledger_delta_valid',
+            // language=SQLite prefix="SELECT 1 WHERE "
+            sql`typeof(${table.delta}) = 'integer' and ${table.delta} between -9007199254740991 and 9007199254740991`,
         ),
     ],
 )
