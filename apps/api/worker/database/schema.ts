@@ -87,10 +87,12 @@ export const creditAccount = sqliteTable(
     table => [
         check(
             'credit_accounts_balance_valid',
+            // language=SQLite prefix="SELECT 1 WHERE "
             sql`typeof(${table.balance}) = 'integer' and ${table.balance} between 0 and 9007199254740991`,
         ),
         check(
             'credit_accounts_reserved_valid',
+            // language=SQLite prefix="SELECT 1 WHERE "
             sql`typeof(${table.reserved}) = 'integer' and ${table.reserved} between 0 and ${table.balance}`,
         ),
     ],
@@ -110,6 +112,7 @@ export const creditProvisioningReceipt = sqliteTable(
     table => [
         check(
             'credit_provisioning_allowance_valid',
+            // language=SQLite prefix="SELECT 1 WHERE "
             sql`typeof(${table.allowance}) = 'integer' and ${table.allowance} between 0 and 9007199254740991`,
         ),
     ],
