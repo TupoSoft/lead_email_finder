@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 import { AuthMailDeliveryError, type AuthMailMessage } from '../src/libs/better-auth/src'
 import {
     createMagicLinkMessage,
     MAGIC_LINK_LIFETIME_SECONDS,
 } from '../src/libs/better-auth/src/mail/magic-link-message'
-import { createAuthMailDelivery, validateAuthMailConfiguration, type AuthMailConfiguration } from './auth-mail'
+import { createAuthMailDelivery, type AuthMailConfiguration } from './auth-mail'
 
 const from = 'no-reply@example.test'
 const to = 'person+sign-in@example.test'
@@ -106,7 +107,22 @@ describe('Cloudflare authentication mail', () => {
             assert.throws(
                 // @ts-expect-error Exercise invalid runtime configuration from outside TypeScript.
                 () => createAuthMailDelivery({ ...configuration(), AUTH_MAIL_FROM: sender }),
-                { message: 'AUTH_MAIL_FROM must be a single email address, optionally with a display name.' },
+                (error: unknown) => {
+                    assert.ok(error instanceof ZodError)
+                    assert.deepEqual(
+                        error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                        [
+                            {
+                                path: ['AUTH_MAIL_FROM'],
+                                message:
+                                    'AUTH_MAIL_FROM must be a single email address, optionally with a display name.',
+                            },
+                        ],
+                    )
+                    assert.ok(!JSON.stringify(error).includes('private'))
+
+                    return true
+                },
             )
         }
     })
@@ -115,8 +131,17 @@ describe('Cloudflare authentication mail', () => {
         for (const binding of [undefined, null, {}, { send: 'private-value' }]) {
             assert.throws(
                 // @ts-expect-error Exercise a missing or invalid runtime binding.
-                () => validateAuthMailConfiguration({ ...configuration(), AUTH_EMAIL: binding }),
-                { message: 'AUTH_EMAIL must be an Email Service send binding.' },
+                () => createAuthMailDelivery({ ...configuration(), AUTH_EMAIL: binding }),
+                (error: unknown) => {
+                    assert.ok(error instanceof ZodError)
+                    assert.deepEqual(
+                        error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                        [{ path: ['AUTH_EMAIL'], message: 'AUTH_EMAIL must be an Email Service send binding.' }],
+                    )
+                    assert.ok(!JSON.stringify(error).includes('private-value'))
+
+                    return true
+                },
             )
         }
     })

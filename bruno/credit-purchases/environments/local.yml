@@ -2,6 +2,8 @@ name: local
 variables:
     - name: baseUrl
       value: http://localhost:53000
+    - name: sessionCookie
+      value: '{{process.env.BRUNO_SESSION_COOKIE}}'
     - name: customerBillingToken
       value: '{{process.env.CUSTOMER_BILLING_TOKEN}}'
     - name: customerHeldBalance

@@ -10,6 +10,7 @@ import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import app from './app'
 import { betterAuthOptions } from './auth-options'
 import type { WorkerEnvironment } from './environment'
+import { D1CreditAccountsRepository } from '@/adapters/outbound/d1-credit-accounts-repository'
 import { createDatabase, type Database } from '@/database/connection'
 
 const origin = 'http://localhost:53000'
@@ -53,6 +54,7 @@ function environment(): WorkerEnvironment['Bindings'] {
         BETTER_AUTH_SECRET: secret,
         GOOGLE_CLIENT_ID: clientId,
         GOOGLE_CLIENT_SECRET: clientSecret,
+        INITIAL_CREDIT_ALLOWANCE: '10',
     }
 }
 
@@ -106,6 +108,37 @@ function accounts(): Promise<AccountRow[]> {
                access_token as accessToken, refresh_token as refreshToken, id_token as idToken
         from accounts
     `)
+}
+
+async function assertInitialCredits(userId: string, balance = 10): Promise<void> {
+    const creditAccounts = await database.all<{ userId: string; reserved: number }>(sql`
+        select user_id as userId, reserved from credit_accounts
+    `)
+    const initialLedger = await database.all<{
+        id: string
+        userId: string
+        operationId: string
+        delta: number
+        reason: string
+    }>(sql`
+        select id, user_id as userId, operation_id as operationId, delta, reason
+        from credit_ledger where operation_id = 'initial-allowance'
+    `)
+
+    assert.deepEqual(creditAccounts, [{ userId, reserved: 0 }])
+    assert.equal(initialLedger.length, 1)
+    assert.ok(initialLedger[0].id)
+    assert.partialDeepStrictEqual(initialLedger[0], {
+        userId,
+        operationId: 'initial-allowance',
+        delta: 10,
+        reason: 'initial_allowance',
+    })
+    assert.deepEqual(await new D1CreditAccountsRepository(database).getSummary(userId), {
+        balance,
+        reserved: 0,
+        available: balance,
+    })
 }
 
 async function assertRejected(response: Response): Promise<void> {
@@ -309,11 +342,14 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(response.headers.get('cache-control'), 'no-store')
         assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
 
-        const canonicalId = await principal(response)
         const storedUsers = await users()
+        const canonicalId = storedUsers[0].id
         const storedAccounts = await accounts()
         const issued = codes.get(exchanges[0])
 
+        // Authentication must grant before bootstrap can repair an interrupted provision.
+        await assertInitialCredits(canonicalId)
+        assert.equal(await principal(response), canonicalId)
         assert.ok(issued)
         assert.deepEqual(storedUsers, [{ id: canonicalId, email: 'person@example.test', emailVerified: 1 }])
         assert.equal(storedAccounts.length, 1)
@@ -335,6 +371,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.notEqual(sessionCookie(repeated), sessionCookie(response))
         assert.equal((await users()).length, 1)
         assert.equal((await accounts()).length, 1)
+        await assertInitialCredits(canonicalId)
 
         const updated = (await accounts())[0]
         const refreshedTokens = codes.get(exchanges[1])
@@ -364,6 +401,61 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.deepEqual(await database.all(sql`select id from sessions`), [])
         assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic-private-provider-error'))
         assert.ok(!response.headers.get('location')?.includes('synthetic-private-provider-error'))
+    })
+
+    it('does not issue a session when credit provisioning fails and repairs on a fresh login', async () => {
+        const identity = { sub: 'credit-repair-google', email: 'credit-repair@example.test', email_verified: true }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await platform.env.DB.prepare(
+            "CREATE TRIGGER reject_oauth_credit_ledger BEFORE INSERT ON credit_ledger BEGIN SELECT RAISE(ABORT, 'synthetic credit failure'); END",
+        ).run()
+
+        try {
+            const failed = await callback(await begin(), identity)
+
+            await assertRejected(failed)
+            assert.equal((await users()).length, 1)
+            assert.deepEqual(await database.all(sql`select id from sessions`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
+            assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic credit failure'))
+        } finally {
+            await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_oauth_credit_ledger').run()
+        }
+
+        const recovered = await callback(await begin(), identity)
+        const canonicalId = (await users())[0].id
+
+        await assertInitialCredits(canonicalId)
+        assert.equal(await principal(recovered), canonicalId)
+    })
+
+    it('keeps a committed grant singular when session issuance fails after provisioning', async () => {
+        const identity = { sub: 'session-repair-google', email: 'session-repair@example.test', email_verified: true }
+        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await platform.env.DB.prepare(
+            "CREATE TRIGGER reject_oauth_session BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'synthetic session failure'); END",
+        ).run()
+
+        try {
+            const failed = await callback(await begin(), identity)
+
+            await assertRejected(failed)
+            assert.deepEqual(await database.all(sql`select id from sessions`), [])
+            await assertInitialCredits((await users())[0].id)
+        } finally {
+            await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_oauth_session').run()
+        }
+
+        const originalLedger = await database.all(sql`select * from credit_ledger`)
+        const recovered = await callback(await begin(), identity)
+        const canonicalId = (await users())[0].id
+
+        assert.equal(await principal(recovered), canonicalId)
+        await assertInitialCredits(canonicalId)
+        assert.deepEqual(await database.all(sql`select * from credit_ledger`), originalLedger)
     })
 
     it('rejects Google tokens with invalid signatures, audience, issuer, or expiry before persisting an identity', async () => {
@@ -451,6 +543,8 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(await callback(await begin(), identity))
             assert.deepEqual(await users(), [])
             assert.deepEqual(await accounts(), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+            assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
 
             const verifiedLocal = await request(await magicLink(email))
             const canonicalId = await principal(verifiedLocal)
@@ -458,6 +552,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(await callback(await begin(), identity))
             assert.deepEqual(await accounts(), [])
             assert.deepEqual(await users(), [{ id: canonicalId, email, emailVerified: 1 }])
+            await assertInitialCredits(canonicalId)
         })
     }
 
@@ -490,6 +585,8 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         )
         assert.deepEqual(await users(), [{ id, email: 'local-unverified@example.test', emailVerified: 0 }])
         assert.deepEqual(await accounts(), [])
+        assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
+        assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
     })
 
     for (const firstMethod of ['magic-link', 'google']) {
@@ -499,9 +596,23 @@ describe('Google redirect OAuth through simulated provider transport', () => {
                 callback(await begin(), { sub: 'both-methods-google', email, email_verified: true })
             const magic = async (): Promise<Response> => request(await magicLink(email))
             const first = await (firstMethod === 'google' ? google() : magic())
+            const provisionedId = (await users())[0].id
+
+            await assertInitialCredits(provisionedId)
+
             const canonicalId = await principal(first)
+
+            await database.run(sql`
+                insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+                values (${randomUUID()}, ${canonicalId}, ${randomUUID()}, -6, 'test_usage', ${Date.now()})
+            `)
+
+            const originalLedger = await database.all(sql`select * from credit_ledger order by id`)
+
             const second = await (firstMethod === 'google' ? magic() : google())
 
+            await assertInitialCredits(canonicalId, 4)
+            assert.deepEqual(await database.all(sql`select * from credit_ledger order by id`), originalLedger)
             assert.equal(await principal(second), canonicalId)
             assert.equal((await users()).length, 1)
             assert.deepEqual(
@@ -553,6 +664,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(arrivals, 3)
         assert.equal(successful.length, responses.length)
         assert.equal(storedUsers.length, 1)
+        await assertInitialCredits(storedUsers[0].id)
 
         for (const response of successful) {
             assert.equal(await principal(response), storedUsers[0].id)
@@ -564,6 +676,7 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(await principal(retryGoogle), storedUsers[0].id)
         assert.equal(await principal(retryMagic), storedUsers[0].id)
         assert.equal((await users()).length, 1)
+        await assertInitialCredits(storedUsers[0].id)
         assert.deepEqual(
             (await accounts()).map(row => row.userId),
             [storedUsers[0].id],

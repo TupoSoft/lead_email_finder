@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, vi } from 'vitest'
 import { createHmac, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
+import { ZodError } from 'zod'
 import app from './app'
 import { createAuth, requireApplicationMutation, requireVerifiedUser } from './auth'
-import type { WorkerEnvironment } from './environment'
+import { environmentSchema, type WorkerEnvironment } from './environment'
 import { createDatabase, type Database } from '@/database/connection'
 import { account, rateLimit, session, user, verification } from '@/database/schema'
 
@@ -15,7 +16,7 @@ const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
 const day = 24 * 60 * 60 * 1000
 
-let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>
+let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM' | 'INITIAL_CREDIT_ALLOWANCE'>>
 let database: Database
 
 function environment(baseUrl = origin): WorkerEnvironment['Bindings'] {
@@ -73,7 +74,7 @@ async function request(path: string, options: RequestInit = {}, baseUrl = origin
 }
 
 beforeAll(async () => {
-    platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
+    platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM' | 'INITIAL_CREDIT_ALLOWANCE'>>({
         configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
         persist: { path: resolve(import.meta.dirname, '../.wrangler/state/test/v3') },
         remoteBindings: false,
@@ -95,6 +96,215 @@ beforeEach(async () => {
     await database.delete(rateLimit)
 })
 
+describe('Worker startup configuration errors', () => {
+    beforeEach(() => {
+        vi.resetModules()
+    })
+
+    afterEach(() => {
+        vi.doUnmock('cloudflare:workers')
+        vi.resetModules()
+        vi.restoreAllMocks()
+    })
+
+    it('starts with valid bindings and exports a working handler without configuration errors', async () => {
+        const configuration = environment()
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        const worker = await import('./index')
+        const response = await worker.default.request('/health', undefined, configuration)
+
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), { status: 'ok', d1: 'up' })
+        assert.deepEqual(errorLog.mock.calls, [])
+    })
+
+    it('aborts startup with readable field errors and structured logs without exposing private values', async () => {
+        const configuration = {
+            ...environment(),
+            APP_BASE_URL: 'https://private-user:private-password@app.example.test/private-url',
+            BETTER_AUTH_SECRET: 'private-short-secret',
+            GOOGLE_CLIENT_SECRET: { privateCredential: 'private-google-secret' },
+            INITIAL_CREDIT_ALLOWANCE: 'private-allowance',
+            AUTH_MAIL_FROM: 'private-sender@example.test\r\nBcc: private-recipient@example.test',
+            AUTH_EMAIL: { send: 'private-binding-value' },
+        }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        const issues = [
+            { field: 'APP_BASE_URL', message: 'APP_BASE_URL must be an HTTP(S) origin.' },
+            { field: 'BETTER_AUTH_SECRET', message: 'BETTER_AUTH_SECRET must contain at least 32 characters.' },
+            {
+                field: 'GOOGLE_CLIENT_SECRET',
+                message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+            },
+            {
+                field: 'INITIAL_CREDIT_ALLOWANCE',
+                message: 'INITIAL_CREDIT_ALLOWANCE must be a nonnegative safe integer.',
+            },
+            {
+                field: 'AUTH_MAIL_FROM',
+                message: 'AUTH_MAIL_FROM must be a single email address, optionally with a display name.',
+            },
+            { field: 'AUTH_EMAIL', message: 'AUTH_EMAIL must be an Email Service send binding.' },
+        ]
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        await assert.rejects(
+            () => import('./index'),
+            (error: unknown) => {
+                assert.ok(error instanceof Error)
+                assert.equal(error.name, 'Error')
+                assert.equal(
+                    error.message,
+                    `Invalid Worker configuration:\n${issues.map(issue => `${issue.field}: ${issue.message}`).join('\n')}`,
+                )
+                assert.ok(error.cause instanceof ZodError)
+                assert.ok(!error.message.includes('private-'))
+                assert.ok(!JSON.stringify(error.cause).includes('private-'))
+
+                return true
+            },
+        )
+
+        assert.deepEqual(errorLog.mock.calls, [[{ event: 'invalid_worker_configuration', issues }]])
+        assert.ok(!JSON.stringify(errorLog.mock.calls).includes('private-'))
+    })
+
+    it('logs unexpected startup failures safely and preserves their original errors', async () => {
+        const failure = new Error('private-startup-error')
+        const configuration = {
+            ...environment(),
+            get APP_BASE_URL(): string {
+                throw failure
+            },
+        }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        await assert.rejects(
+            () => import('./index'),
+            (error: unknown) => error === failure,
+        )
+
+        assert.deepEqual(errorLog.mock.calls, [[{ event: 'worker_startup_failed' }]])
+        assert.ok(!JSON.stringify(errorLog.mock.calls).includes(failure.message))
+    })
+})
+
+describe('Worker environment schema', () => {
+    it('normalizes the origin, numeric allowance, and structured mail sender together', () => {
+        const configuration = {
+            ...environment('https://app.example.test/'),
+            INITIAL_CREDIT_ALLOWANCE: '25',
+            AUTH_MAIL_FROM: 'Lead Email Finder <no-reply@example.test>',
+        }
+
+        const parsed = environmentSchema.parse(configuration)
+
+        assert.equal(parsed.APP_BASE_URL, 'https://app.example.test')
+        assert.equal(parsed.INITIAL_CREDIT_ALLOWANCE, 25)
+        assert.deepEqual(parsed.AUTH_MAIL_FROM, { name: 'Lead Email Finder', email: 'no-reply@example.test' })
+        assert.equal(parsed.AUTH_EMAIL, configuration.AUTH_EMAIL)
+        assert.equal(parsed.BETTER_AUTH_SECRET, secret)
+    })
+
+    it('preserves explicit zero allowance and a plain email sender', () => {
+        const parsed = environmentSchema.parse({
+            ...environment(),
+            INITIAL_CREDIT_ALLOWANCE: '0',
+            AUTH_MAIL_FROM: 'no-reply@example.test',
+        })
+
+        assert.equal(parsed.INITIAL_CREDIT_ALLOWANCE, 0)
+        assert.equal(parsed.AUTH_MAIL_FROM, 'no-reply@example.test')
+    })
+
+    const invalidVariables: { field: string; values: unknown[]; message: string }[] = [
+        {
+            field: 'APP_BASE_URL',
+            values: [
+                undefined,
+                '',
+                'private-invalid-url',
+                'ftp://app.example.test',
+                'https://name:password@app.example.test',
+                'https://app.example.test/path',
+                'https://app.example.test/?private=query',
+                'https://app.example.test/#private-fragment',
+            ],
+            message: 'APP_BASE_URL must be an HTTP(S) origin.',
+        },
+        {
+            field: 'BETTER_AUTH_SECRET',
+            values: [undefined, null, 42, '', 'private-short-secret'],
+            message: 'BETTER_AUTH_SECRET must contain at least 32 characters.',
+        },
+        ...(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const).map(field => ({
+            field,
+            values: [undefined, null, 42, '', '   '],
+            message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+        })),
+        {
+            field: 'AUTH_MAIL_FROM',
+            values: [undefined],
+            message: 'AUTH_MAIL_FROM must be a single email address, optionally with a display name.',
+        },
+        {
+            field: 'AUTH_EMAIL',
+            values: [undefined],
+            message: 'AUTH_EMAIL must be an Email Service send binding.',
+        },
+    ]
+
+    for (const { field, values, message } of invalidVariables) {
+        it(`rejects missing or invalid ${field} with a fixed, field-specific issue`, () => {
+            for (const value of values) {
+                const configuration: Record<string, unknown> = { ...environment(), [field]: value }
+                const result = environmentSchema.safeParse(configuration)
+
+                assert.equal(result.success, false)
+                assert.ok(result.error)
+                assert.deepEqual(
+                    result.error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                    [{ path: [field], message }],
+                )
+            }
+        })
+    }
+
+    it('keeps invalid credentials, sender details, and URL contents out of configuration errors', () => {
+        const configuration = {
+            ...environment(),
+            APP_BASE_URL: 'https://private-user:private-password@app.example.test/private-path?private-query',
+            BETTER_AUTH_SECRET: 'private-short-secret',
+            GOOGLE_CLIENT_SECRET: { privateCredential: 'private-google-secret' },
+            INITIAL_CREDIT_ALLOWANCE: 'private-allowance',
+            AUTH_MAIL_FROM: 'private-sender@example.test\r\nBcc: private-recipient@example.test',
+            AUTH_EMAIL: { send: 'private-binding-value' },
+        }
+
+        const result = environmentSchema.safeParse(configuration)
+
+        assert.equal(result.success, false)
+        assert.ok(result.error)
+        assert.deepEqual(result.error.issues.map(issue => issue.path[0]).sort(), [
+            'APP_BASE_URL',
+            'AUTH_EMAIL',
+            'AUTH_MAIL_FROM',
+            'BETTER_AUTH_SECRET',
+            'GOOGLE_CLIENT_SECRET',
+            'INITIAL_CREDIT_ALLOWANCE',
+        ])
+        assert.ok(!result.error.message.includes('private-'))
+        assert.ok(!JSON.stringify(result.error).includes('private-'))
+        assert.ok(result.error.issues.every(issue => !('input' in issue)))
+    })
+})
+
 describe('D1 Better Auth sessions', () => {
     for (const field of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const) {
         for (const value of [undefined, '', '   ']) {
@@ -109,7 +319,20 @@ describe('D1 Better Auth sessions', () => {
 
                 assert.throws(
                     () => createAuth(database, configuration),
-                    /GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured/,
+                    (error: unknown) => {
+                        assert.ok(error instanceof ZodError)
+                        assert.deepEqual(
+                            error.issues.map(issue => ({ path: issue.path, message: issue.message })),
+                            [
+                                {
+                                    path: [field],
+                                    message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+                                },
+                            ],
+                        )
+
+                        return true
+                    },
                 )
             })
         }

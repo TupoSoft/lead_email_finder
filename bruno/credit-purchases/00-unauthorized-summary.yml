@@ -8,9 +8,16 @@ http:
     url: '{{baseUrl}}/v1/billing/summary'
 
 runtime:
-    scripts:
-        - type: tests
-          code: |-
-              test('requires authentication for customer billing reads', function() {
-                expect(res.status).to.equal(401);
-              });
+    assertions:
+        - expression: res.status
+          operator: eq
+          value: '401'
+        - expression: res.body.code
+          operator: eq
+          value: authentication_required
+        - expression: Object.keys(res.body)
+          operator: length
+          value: '1'
+        - expression: res.headers['cache-control']
+          operator: eq
+          value: no-store

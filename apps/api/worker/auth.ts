@@ -18,65 +18,13 @@ import { betterAuthOptions } from './auth-options'
 import { wrapCanonicalIdentityAdapter } from './auth-identity-adapter'
 import { createDatabase, type Database } from '@/database/connection'
 import { account, rateLimit, session, user, verification } from '@/database/schema'
-import type { WorkerEnvironment } from './environment'
-
-export interface AuthConfiguration {
-    APP_BASE_URL: string
-    BETTER_AUTH_SECRET: string
-    GOOGLE_CLIENT_ID: string
-    GOOGLE_CLIENT_SECRET: string
-}
-
-function parseApplicationBaseUrl(baseUrl: unknown): URL {
-    if (typeof baseUrl !== 'string') {
-        throw new Error('APP_BASE_URL must be an HTTP(S) origin.')
-    }
-
-    try {
-        return new URL(baseUrl)
-    } catch {
-        throw new Error('APP_BASE_URL must be an HTTP(S) origin.')
-    }
-}
-
-export function applicationOrigin(configuration: AuthConfiguration): string {
-    const url = parseApplicationBaseUrl(configuration.APP_BASE_URL)
-
-    if (
-        !['http:', 'https:'].includes(url.protocol) ||
-        url.username ||
-        url.password ||
-        url.pathname !== '/' ||
-        url.search ||
-        url.hash
-    ) {
-        throw new Error('APP_BASE_URL must be an HTTP(S) origin.')
-    }
-
-    return url.origin
-}
-
-export function validateAuthConfiguration(configuration: AuthConfiguration): AuthConfiguration {
-    const origin = applicationOrigin(configuration)
-    const secret = configuration.BETTER_AUTH_SECRET
-
-    if (typeof secret !== 'string' || secret.length < 32) {
-        throw new Error('BETTER_AUTH_SECRET must contain at least 32 characters.')
-    }
-
-    const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = configuration
-
-    if (
-        typeof GOOGLE_CLIENT_ID !== 'string' ||
-        !GOOGLE_CLIENT_ID.trim() ||
-        typeof GOOGLE_CLIENT_SECRET !== 'string' ||
-        !GOOGLE_CLIENT_SECRET.trim()
-    ) {
-        throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.')
-    }
-
-    return { APP_BASE_URL: origin, BETTER_AUTH_SECRET: secret, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET }
-}
+import {
+    authConfigurationSchema,
+    environmentSchema,
+    type AuthConfiguration,
+    type WorkerEnvironment,
+} from './environment'
+import { D1CreditAccountsRepository } from '@/adapters/outbound/d1-credit-accounts-repository'
 
 export function createAuth(
     database: Database,
@@ -84,7 +32,9 @@ export function createAuth(
     mailDelivery?: AuthMailDelivery,
     requestId?: string,
 ): ReturnType<typeof betterAuth> {
-    const validatedConfiguration = validateAuthConfiguration(configuration)
+    const validatedConfiguration = authConfigurationSchema.parse(configuration)
+    const allowance = validatedConfiguration.INITIAL_CREDIT_ALLOWANCE
+    const creditAccounts = new D1CreditAccountsRepository(database)
     const origin = validatedConfiguration.APP_BASE_URL
     const encryptIdToken = async (data: { idToken?: string | null }): Promise<{ data: { idToken: string } } | void> => {
         if (!data.idToken) {
@@ -129,6 +79,19 @@ export function createAuth(
             },
         },
         databaseHooks: {
+            session: {
+                create: {
+                    async before(newSession) {
+                        const verifiedUser = await database.get<{ id: string }>(sql`
+                            select id from users where id = ${newSession.userId} and email_verified = 1
+                        `)
+
+                        if (verifiedUser) {
+                            await creditAccounts.provision(verifiedUser.id, allowance)
+                        }
+                    },
+                },
+            },
             account: {
                 create: { before: encryptIdToken },
                 update: { before: encryptIdToken },
@@ -206,7 +169,7 @@ export const requireApplicationMutation: MiddlewareHandler<WorkerEnvironment> = 
         return next()
     }
 
-    const origin = applicationOrigin(context.env)
+    const origin = environmentSchema.shape.APP_BASE_URL.parse(context.env.APP_BASE_URL)
 
     if (context.req.header('Origin') !== origin) {
         return context.json({ code: 'origin_not_allowed' }, 403)
@@ -240,6 +203,12 @@ export const requireVerifiedUser: MiddlewareHandler<WorkerEnvironment> = async (
     }
 
     const currentUser = result.response.user
+
+    // Repair an identity/session committed before an interrupted provisioning attempt.
+    const creditAccounts = new D1CreditAccountsRepository(createDatabase(context.env.DB))
+    const allowance = environmentSchema.shape.INITIAL_CREDIT_ALLOWANCE.parse(context.env.INITIAL_CREDIT_ALLOWANCE)
+
+    await creditAccounts.provision(currentUser.id, allowance)
 
     context.set('user', {
         id: currentUser.id,

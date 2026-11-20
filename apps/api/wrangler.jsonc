@@ -8,6 +8,7 @@
     "vars": {
         "APP_BASE_URL": "http://127.0.0.1:5173",
         "AUTH_MAIL_FROM": "no-reply@example.test",
+        "INITIAL_CREDIT_ALLOWANCE": "10",
     },
     "secrets": {
         "required": ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],

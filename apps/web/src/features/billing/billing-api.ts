@@ -8,7 +8,9 @@ function requireData<T>(result: { data?: T; response: Response }): T {
 }
 
 export async function readBillingSummary(api: ApiClient, signal?: AbortSignal): Promise<BillingSummary> {
-    const { balance, reserved, available } = requireData(await api.GET('/v1/billing/summary', { signal }))
+    const { balance, reserved, available } = requireData(
+        await api.GET('/v1/billing/summary', { signal, cache: 'no-store' }),
+    )
     return { balance, reserved, available }
 }
 

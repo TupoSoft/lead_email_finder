@@ -128,7 +128,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["BillingSummaryController_getSummary"];
+        /**
+         * Read personal credit balance
+         * @description Returns the verified current user's balance, reserved credits, and available credits. Ownership comes only from the session. Atomically repairs missing provisioning; the durable receipt prevents repeated initial grants, including after a zero allowance or configuration change.
+         */
+        get: operations["getBillingSummary"];
         put?: never;
         post?: never;
         delete?: never;
@@ -281,11 +285,8 @@ export interface components {
             state: "unavailable";
         };
         BillingSummaryResponseDto: {
-            /** @description Credits usable for new spending: balance minus reserved */
             available: number;
-            /** @description Total credits owned by the organization */
             balance: number;
-            /** @description Credits held by accepted operations, not yet charged */
             reserved: number;
         };
         CurrentUserResponseDto: {
@@ -799,7 +800,7 @@ export interface operations {
             };
         };
     };
-    BillingSummaryController_getSummary: {
+    getBillingSummary: {
         parameters: {
             query?: never;
             header?: never;
@@ -808,27 +809,54 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Personal credit balance. */
             200: {
                 headers: {
+                    /** @description Prevents caching protected identity. */
+                    "Cache-Control"?: string;
+                    /** @description Preserves session renewal or expiration cookies. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BillingSummaryResponseDto"];
                 };
             };
-            /** @description Authentication is required */
+            /** @description Authentication is missing, expired, or revoked. */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "authentication_required";
+                    };
+                };
             };
-            /** @description Billing read permission is required */
+            /** @description The current user has not verified their email. */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "email_verification_required";
+                    };
+                };
+            };
+            /** @description Provisioning or the balance read failed; retry safely. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "error";
+                    };
+                };
             };
         };
     };
