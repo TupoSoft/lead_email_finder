@@ -1,0 +1,42 @@
+[
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "users"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "sessions"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "accounts"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "verifications"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "auth_rate_limits"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "credit_accounts"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "credit_provisioning_receipts"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "credit_ledger"]
+    }
+]

@@ -174,6 +174,19 @@ describe('Drizzle schema synchronization', () => {
 
         try {
             await pushSchema()
+
+            const primaryKeys = (
+                await client.execute(`
+                    select tables.name as table_name, columns.name as column_name, columns."notnull" as nonnull
+                    from sqlite_master as tables
+                    join pragma_table_info(tables.name) as columns
+                    where tables.type = 'table' and tables.name not like 'sqlite_%' and columns.pk > 0
+                `)
+            ).rows
+
+            assert.equal(primaryKeys.length, 8)
+            assert.ok(primaryKeys.every(column => column.nonnull === 1))
+
             await client.execute('pragma foreign_keys = on')
             await client.batch(
                 [
@@ -239,6 +252,7 @@ describe('Drizzle schema synchronization', () => {
 
             assert.match(rebuilt.stdout, /Changes applied/)
             assert.equal(rebuiltColumns.find(column => column.name === 'account_id')?.notnull, 1)
+            assert.ok(rebuiltColumns.filter(column => Number(column.pk) > 0).every(column => column.notnull === 1))
             assert.deepEqual(await readSeedRows(), originalRows)
             assert.deepEqual(
                 (

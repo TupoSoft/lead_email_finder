@@ -22,7 +22,7 @@
         "predb:push": "if [ \"$D1_LOCAL_TARGET\" = test ]; then wrangler d1 execute DB --local --persist-to .wrangler/state/test --command \"SELECT 1\"; else wrangler d1 execute DB --local --command \"SELECT 1\"; fi",
         "db:push": "drizzle-kit push --config=drizzle.config.ts --force",
         "db:sync": "DRIZZLE_D1_RESET_SCHEMA=0 pnpm run db:push",
-        "db:reset": "DRIZZLE_D1_RESET_SCHEMA=1 pnpm run db:push && DRIZZLE_D1_RESET_SCHEMA=0 pnpm run db:push"
+        "db:reset": "DRIZZLE_D1_RESET_SCHEMA=1 pnpm run db:push --hints-file scripts/reset-hints.json && DRIZZLE_D1_RESET_SCHEMA=0 pnpm run db:push"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.879.0",
@@ -48,7 +48,7 @@
         "class-validator": "^0.14.2",
         "csv-parse": "7.0.2",
         "csv-stringify": "^6.6.0",
-        "drizzle-orm": "^0.45.4",
+        "drizzle-orm": "1.0.0-rc.5",
         "express": "^5.1.0",
         "hono": "^4.13.18",
         "ioredis": "^5.7.0",
@@ -80,7 +80,7 @@
         "@types/node": "^26.6.6",
         "@types/nodemailer": "8.0.2",
         "@types/pg": "^8.20.0",
-        "drizzle-kit": "0.31.11",
+        "drizzle-kit": "1.0.0-rc.5",
         "ts-node": "^10.9.2",
         "tsconfig-paths": "4.2.0",
         "typescript": "^5.9.2",
