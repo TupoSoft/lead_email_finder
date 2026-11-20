@@ -32,12 +32,14 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
 
     async getSummary(userId: string): Promise<CreditSummary> {
         const summary = await this.database.get<CreditSummary>(sql`
-            select coalesce(sum(ledger.delta), 0) as balance, account.reserved,
-                   coalesce(sum(ledger.delta), 0) - account.reserved as available
-            from credit_accounts as account
-            left join credit_ledger as ledger on ledger.user_id = account.user_id
-            where account.user_id = ${userId}
-            group by account.user_id, account.reserved
+            with ledger as (select coalesce(sum(delta), 0) as balance from credit_ledger where user_id = ${userId}),
+                 reservations as (select coalesce(sum(amount), 0) as reserved
+                                  from credit_reservations
+                                  where user_id = ${userId}
+                                    and state = 'reserved')
+            select balance, reserved, balance - reserved as available
+            from ledger
+                     cross join reservations
         `)
 
         if (!summary) {
