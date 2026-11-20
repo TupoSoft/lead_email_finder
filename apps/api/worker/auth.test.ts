@@ -16,7 +16,7 @@ const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
 const day = 24 * 60 * 60 * 1000
 
-let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>
+let platform: PlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM' | 'INITIAL_CREDIT_ALLOWANCE'>>
 let database: Database
 
 function environment(baseUrl = origin): WorkerEnvironment['Bindings'] {
@@ -26,7 +26,6 @@ function environment(baseUrl = origin): WorkerEnvironment['Bindings'] {
         BETTER_AUTH_SECRET: secret,
         GOOGLE_CLIENT_ID: 'test-google-client-id',
         GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
-        INITIAL_CREDIT_ALLOWANCE: '10',
     }
 }
 
@@ -75,7 +74,7 @@ async function request(path: string, options: RequestInit = {}, baseUrl = origin
 }
 
 beforeAll(async () => {
-    platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
+    platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM' | 'INITIAL_CREDIT_ALLOWANCE'>>({
         configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
         persist: { path: resolve(import.meta.dirname, '../.wrangler/state/test/v3') },
         remoteBindings: false,

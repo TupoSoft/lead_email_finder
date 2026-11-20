@@ -96,7 +96,7 @@ export type VerifiedUser = {
 }
 
 export type WorkerEnvironment = {
-    // Widen Wrangler's development URL literal to allow the configured application origin.
-    Bindings: Omit<Env, 'APP_BASE_URL'> & z.input<typeof environmentSchema>
+    // Use schema input types rather than Wrangler's configured string literals.
+    Bindings: Omit<Env, keyof z.input<typeof environmentSchema>> & z.input<typeof environmentSchema>
     Variables: { requestId: string; user: VerifiedUser }
 }
