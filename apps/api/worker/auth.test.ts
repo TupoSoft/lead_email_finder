@@ -173,8 +173,8 @@ describe('Worker startup configuration errors', () => {
         assert.ok(!JSON.stringify(errorLog.mock.calls).includes('private-'))
     })
 
-    it('preserves unexpected binding access failures instead of presenting them as validation errors', async () => {
-        const failure = new Error('Synthetic binding access failure')
+    it('logs unexpected startup failures safely and preserves their original errors', async () => {
+        const failure = new Error('private-startup-error')
         const configuration = {
             ...environment(),
             get APP_BASE_URL(): string {
@@ -190,7 +190,8 @@ describe('Worker startup configuration errors', () => {
             (error: unknown) => error === failure,
         )
 
-        assert.deepEqual(errorLog.mock.calls, [])
+        assert.deepEqual(errorLog.mock.calls, [[{ event: 'worker_startup_failed' }]])
+        assert.ok(!JSON.stringify(errorLog.mock.calls).includes(failure.message))
     })
 })
 

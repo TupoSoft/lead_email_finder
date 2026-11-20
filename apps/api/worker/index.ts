@@ -8,6 +8,8 @@ try {
     environmentSchema.parse(env)
 } catch (error) {
     if (!(error instanceof ZodError)) {
+        console.error({ event: 'worker_startup_failed' })
+
         throw error
     }
 
