@@ -1,56 +1,56 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, text, uniqueIndex, snakeCase } from 'drizzle-orm/sqlite-core'
 
 // Table-level text primary keys keep explicit NOT NULL constraints in Kit's SQLite output.
-export const user = sqliteTable(
+export const user = snakeCase.table(
     'users',
     {
-        id: text('id').notNull(),
-        name: text('name').notNull(),
-        email: text('email').notNull().unique(),
-        emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
-        image: text('image'),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+        id: text().notNull(),
+        name: text().notNull(),
+        email: text().notNull().unique(),
+        emailVerified: integer({ mode: 'boolean' }).notNull().default(false),
+        image: text(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [primaryKey({ columns: [table.id] })],
 )
 
-export const session = sqliteTable(
+export const session = snakeCase.table(
     'sessions',
     {
-        id: text('id').notNull(),
-        expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-        token: text('token').notNull().unique(),
-        ipAddress: text('ip_address'),
-        userAgent: text('user_agent'),
-        userId: text('user_id')
+        id: text().notNull(),
+        expiresAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        token: text().notNull().unique(),
+        ipAddress: text(),
+        userAgent: text(),
+        userId: text()
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [primaryKey({ columns: [table.id] }), index('sessions_user_id_idx').on(table.userId)],
 )
 
-export const account = sqliteTable(
+export const account = snakeCase.table(
     'accounts',
     {
-        id: text('id').notNull(),
-        accountId: text('account_id').notNull(),
-        providerId: text('provider_id').notNull(),
-        userId: text('user_id')
+        id: text().notNull(),
+        accountId: text().notNull(),
+        providerId: text().notNull(),
+        userId: text()
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
-        accessToken: text('access_token'),
-        refreshToken: text('refresh_token'),
-        idToken: text('id_token'),
-        accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp_ms' }),
-        refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp_ms' }),
-        scope: text('scope'),
-        password: text('password'),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+        accessToken: text(),
+        refreshToken: text(),
+        idToken: text(),
+        accessTokenExpiresAt: integer({ mode: 'timestamp_ms' }),
+        refreshTokenExpiresAt: integer({ mode: 'timestamp_ms' }),
+        scope: text(),
+        password: text(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [
         primaryKey({ columns: [table.id] }),
@@ -59,62 +59,54 @@ export const account = sqliteTable(
     ],
 )
 
-export const verification = sqliteTable(
+export const verification = snakeCase.table(
     'verifications',
     {
-        id: text('id').notNull(),
-        identifier: text('identifier').notNull(),
-        value: text('value').notNull(),
-        expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+        id: text().notNull(),
+        identifier: text().notNull(),
+        value: text().notNull(),
+        expiresAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [primaryKey({ columns: [table.id] }), index('verifications_identifier_idx').on(table.identifier)],
 )
 
-export const rateLimit = sqliteTable(
+export const rateLimit = snakeCase.table(
     'auth_rate_limits',
     {
-        id: text('id').notNull(),
-        key: text('key').notNull().unique(),
-        count: integer('count').notNull(),
-        lastRequest: integer('last_request').notNull(),
+        id: text().notNull(),
+        key: text().notNull().unique(),
+        count: integer().notNull(),
+        lastRequest: integer().notNull(),
     },
     table => [primaryKey({ columns: [table.id] })],
 )
 
-export const creditAccount = sqliteTable(
+export const creditAccount = snakeCase.table(
     'credit_accounts',
     {
-        userId: text('user_id')
+        userId: text()
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
-        reserved: integer('reserved').notNull().default(0),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
-    table => [
-        primaryKey({ columns: [table.userId] }),
-        check(
-            'credit_accounts_reserved_valid',
-            // language=SQLite prefix="SELECT 1 WHERE "
-            sql`typeof(${table.reserved}) = 'integer' and ${table.reserved} between 0 and 9007199254740991`,
-        ),
-    ],
+    table => [primaryKey({ columns: [table.userId] })],
 )
 
 // Balance movements are appended; corrections are new entries rather than edits to history.
-export const creditLedger = sqliteTable(
+export const creditLedger = snakeCase.table(
     'credit_ledger',
     {
-        id: text('id').notNull(),
-        userId: text('user_id')
+        id: text().notNull(),
+        userId: text()
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
-        operationId: text('operation_id').notNull(),
-        delta: integer('delta').notNull(),
-        reason: text('reason').notNull(),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+        operationId: text().notNull(),
+        delta: integer().notNull(),
+        reason: text().notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [
         primaryKey({ columns: [table.id] }),
@@ -124,5 +116,32 @@ export const creditLedger = sqliteTable(
             // language=SQLite prefix="SELECT 1 WHERE "
             sql`typeof(${table.delta}) = 'integer' and ${table.delta} between -9007199254740991 and 9007199254740991`,
         ),
+    ],
+)
+
+export const creditReservations = snakeCase.table(
+    'credit_reservations',
+    {
+        userId: text()
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        operationId: text().notNull(),
+        amount: integer().notNull(),
+        state: text({ enum: ['reserved', 'captured', 'released'] }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
+    },
+    table => [
+        check(
+            'credit_reservation_state_valid',
+            // language=SQLite prefix="SELECT 1 WHERE "
+            sql`${table.state} in ('reserved', 'captured', 'released')`,
+        ),
+        check(
+            'credit_reservation_amount_positive',
+            // language=SQLite prefix="SELECT 1 WHERE "
+            sql`${table.amount} > 0`,
+        ),
+        primaryKey({ columns: [table.userId, table.operationId] }),
     ],
 )
