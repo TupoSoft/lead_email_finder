@@ -1,5 +1,4 @@
 import { sql } from 'drizzle-orm'
-import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core'
 import type { CreditAccountsRepository, CreditSummary } from '@/application/ports/credit-accounts-repository'
 import type { Database } from '@/database/connection'
 
@@ -14,9 +13,8 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
         const receiptId = crypto.randomUUID()
         const now = Date.now()
 
-        // The unique user receipt selects the winning allowance. Its attempt ID gates the
-        // ledger append, so the account, receipt, and initial movement commit together once.
-        const statements = [
+        // Only the winning receipt can append the initial grant, including zero.
+        await this.database.batchSql([
             sql`
                 insert into credit_accounts (user_id, reserved, created_at, updated_at)
                 select id, 0, ${now}, ${now} from users
@@ -35,16 +33,7 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
                 from credit_provisioning_receipts
                 where user_id = ${userId} and id = ${receiptId}
             `,
-        ]
-        const dialect = new SQLiteAsyncDialect()
-        const prepared = statements.map(statement => {
-            const query = dialect.sqlToQuery(statement)
-
-            return this.database.$client.prepare(query.sql).bind(...query.params)
-        })
-
-        // Drizzle's raw sql queries are not supported by its D1 batch mapper.
-        await this.database.$client.batch(prepared)
+        ])
     }
 
     async getSummary(userId: string): Promise<CreditSummary> {

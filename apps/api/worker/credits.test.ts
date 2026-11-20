@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, it, vi } from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import { ZodError } from 'zod'
@@ -127,6 +127,66 @@ beforeEach(async () => {
 afterEach(async () => {
     await clearFailureTriggers()
     vi.restoreAllMocks()
+})
+
+describe('tagged SQL batches on D1', () => {
+    it('binds SQL-looking text verbatim and preserves regular Drizzle reads and writes', async () => {
+        const { userId } = await seedSession()
+        const name = "O'Brien'); delete from users; --"
+        const statements: readonly SQL[] = [sql`update users set name = ${name} where id = ${userId}`]
+
+        await database.batchSql(statements)
+
+        const stored = await database.get<{ name: string }>(sql`select name from users where id = ${userId}`)
+
+        assert.deepEqual(stored, { name })
+
+        const updatedName = 'Written through Drizzle after the batch'
+
+        await database.run(sql`update users set name = ${updatedName} where id = ${userId}`)
+
+        assert.deepEqual(await database.all(sql`select id, name from users`), [{ id: userId, name: updatedName }])
+    })
+
+    it('executes statements in order so later writes can use earlier writes', async () => {
+        const { userId } = await seedSession()
+        const entryId = randomUUID()
+        const now = Date.now()
+
+        await database.batchSql([
+            sql`
+                insert into credit_accounts (user_id, reserved, created_at, updated_at)
+                values (${userId}, 0, ${now}, ${now})
+            `,
+            sql`
+                insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+                select ${entryId}, user_id, 'ordered-batch', 5, 'test_adjustment', ${now}
+                from credit_accounts where user_id = ${userId}
+            `,
+        ])
+
+        assert.deepEqual(await accounts(), [{ userId, reserved: 0 }])
+        assert.deepEqual(await ledgerEntries(), [
+            { id: entryId, userId, operationId: 'ordered-batch', delta: 5, reason: 'test_adjustment', createdAt: now },
+        ])
+        assert.deepEqual(await credits.getSummary(userId), { balance: 5, reserved: 0, available: 5 })
+    })
+
+    it('rolls back every write when a later statement fails', async () => {
+        const { userId } = await seedSession()
+        const original = await database.get(sql`select name, email from users where id = ${userId}`)
+
+        assert.ok(original)
+
+        await assert.rejects(() =>
+            database.batchSql([
+                sql`update users set name = 'This change must roll back' where id = ${userId}`,
+                sql`update users set email = null where id = ${userId}`,
+            ]),
+        )
+
+        assert.deepEqual(await database.get(sql`select name, email from users where id = ${userId}`), original)
+    })
 })
 
 describe('initial credit allowance configuration', () => {
