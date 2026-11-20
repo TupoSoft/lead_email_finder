@@ -89,6 +89,7 @@ export const creditAccount = snakeCase.table(
         userId: text()
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
+        reserved: integer('reserved').notNull().default(0),
         createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
         updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
