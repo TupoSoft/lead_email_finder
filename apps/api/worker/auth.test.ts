@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, vi } from 'vitest'
 import { createHmac, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -94,6 +94,104 @@ beforeEach(async () => {
     await database.delete(user)
     await database.delete(verification)
     await database.delete(rateLimit)
+})
+
+describe('Worker startup configuration errors', () => {
+    beforeEach(() => {
+        vi.resetModules()
+    })
+
+    afterEach(() => {
+        vi.doUnmock('cloudflare:workers')
+        vi.resetModules()
+        vi.restoreAllMocks()
+    })
+
+    it('starts with valid bindings and exports a working handler without configuration errors', async () => {
+        const configuration = environment()
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        const worker = await import('./index')
+        const response = await worker.default.request('/health', undefined, configuration)
+
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), { status: 'ok', d1: 'up' })
+        assert.deepEqual(errorLog.mock.calls, [])
+    })
+
+    it('aborts startup with readable field errors and structured logs without exposing private values', async () => {
+        const configuration = {
+            ...environment(),
+            APP_BASE_URL: 'https://private-user:private-password@app.example.test/private-url',
+            BETTER_AUTH_SECRET: 'private-short-secret',
+            GOOGLE_CLIENT_SECRET: { privateCredential: 'private-google-secret' },
+            INITIAL_CREDIT_ALLOWANCE: 'private-allowance',
+            AUTH_MAIL_FROM: 'private-sender@example.test\r\nBcc: private-recipient@example.test',
+            AUTH_EMAIL: { send: 'private-binding-value' },
+        }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        const issues = [
+            { field: 'APP_BASE_URL', message: 'APP_BASE_URL must be an HTTP(S) origin.' },
+            { field: 'BETTER_AUTH_SECRET', message: 'BETTER_AUTH_SECRET must contain at least 32 characters.' },
+            {
+                field: 'GOOGLE_CLIENT_SECRET',
+                message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be configured.',
+            },
+            {
+                field: 'INITIAL_CREDIT_ALLOWANCE',
+                message: 'INITIAL_CREDIT_ALLOWANCE must be a nonnegative safe integer.',
+            },
+            {
+                field: 'AUTH_MAIL_FROM',
+                message: 'AUTH_MAIL_FROM must be a single email address, optionally with a display name.',
+            },
+            { field: 'AUTH_EMAIL', message: 'AUTH_EMAIL must be an Email Service send binding.' },
+        ]
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        await assert.rejects(
+            () => import('./index'),
+            (error: unknown) => {
+                assert.ok(error instanceof Error)
+                assert.equal(error.name, 'Error')
+                assert.equal(
+                    error.message,
+                    `Invalid Worker configuration:\n${issues.map(issue => `${issue.field}: ${issue.message}`).join('\n')}`,
+                )
+                assert.ok(error.cause instanceof ZodError)
+                assert.ok(!error.message.includes('private-'))
+                assert.ok(!JSON.stringify(error.cause).includes('private-'))
+
+                return true
+            },
+        )
+
+        assert.deepEqual(errorLog.mock.calls, [[{ event: 'invalid_worker_configuration', issues }]])
+        assert.ok(!JSON.stringify(errorLog.mock.calls).includes('private-'))
+    })
+
+    it('preserves unexpected binding access failures instead of presenting them as validation errors', async () => {
+        const failure = new Error('Synthetic binding access failure')
+        const configuration = {
+            ...environment(),
+            get APP_BASE_URL(): string {
+                throw failure
+            },
+        }
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        vi.doMock('cloudflare:workers', () => ({ env: configuration }))
+
+        await assert.rejects(
+            () => import('./index'),
+            (error: unknown) => error === failure,
+        )
+
+        assert.deepEqual(errorLog.mock.calls, [])
+    })
 })
 
 describe('Worker environment schema', () => {
