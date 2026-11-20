@@ -1,0 +1,231 @@
+diff --git a/api.js b/api.js
+index f4ecb91959f62fc938416a0585458c0a710af161..15c7352b87b33af4cd14805450841674520fcb91 100644
+--- a/api.js
++++ b/api.js
+@@ -17371,7 +17371,7 @@ var init_statementCombiner = __esm({
+           checkConstraints: Object.values(checkConstraints)
+         }
+       ];
+-      if (Object.keys(indexes).length) {
++      if (action !== "push" && Object.keys(indexes).length) {
+         statements.push(...prepareCreateIndexesJson(name, "", indexes));
+       }
+       return statements;
+@@ -24529,10 +24529,41 @@ ${withStyle.errorWarning(
+       if (progressCallback) {
+         progressCallback("views", viewsCount, "done");
+       }
+-      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\((.*?)\)/gi;
+-      const unnamedCheckPattern = /CHECK\s*\((.*?)\)/gi;
++      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\(/gi;
++      const unnamedCheckPattern = /CHECK\s*\(/gi;
++      const extractChecks = (sql, pattern) => [...sql.matchAll(pattern)].map((match) => {
++        const start = match.index + match[0].length;
++        let end = start;
++        let depth = 1;
++        let quote;
++        for (; end < sql.length; end++) {
++          const character = sql[end];
++          if (quote) {
++            if (character === quote) {
++              if (sql[end + 1] === quote) {
++                end++;
++              } else {
++                quote = void 0;
++              }
++            }
++            continue;
++          }
++          if (character === "'" || character === '"' || character === "`") {
++            quote = character;
++          } else if (character === "[") {
++            quote = "]";
++          } else if (character === "(") {
++            depth++;
++          } else if (character === ")" && --depth === 0) {
++            break;
++          }
++        }
++        if (depth !== 0) {
++          throw new Error("Could not parse SQLite CHECK constraint");
++        }
++        return [...match, sql.slice(start, end)];
++      });
+       let checkCounter = 0;
+-      const checkConstraints = {};
+       const checks = await db.query(`SELECT
+ 		  name as "tableName",
+ 		  sql as "sql"
+@@ -24542,7 +24573,8 @@ ${withStyle.errorWarning(
+       for (const check of checks) {
+         if (!tablesFilter(check.tableName)) continue;
+         const { tableName, sql } = check;
+-        let namedChecks = [...sql.matchAll(namedCheckPattern)];
++        const checkConstraints = {};
++        let namedChecks = extractChecks(sql, namedCheckPattern);
+         if (namedChecks.length > 0) {
+           namedChecks.forEach(([_3, checkName, checkValue]) => {
+             checkConstraints[checkName] = {
+@@ -24551,7 +24583,7 @@ ${withStyle.errorWarning(
+             };
+           });
+         } else {
+-          let unnamedChecks = [...sql.matchAll(unnamedCheckPattern)];
++          let unnamedChecks = extractChecks(sql, unnamedCheckPattern);
+           unnamedChecks.forEach(([_3, checkValue]) => {
+             let checkName = `${tableName}_check_${++checkCounter}`;
+             checkConstraints[checkName] = {
+diff --git a/api.mjs b/api.mjs
+index a940272dfb05accf57a472c46c52652ec9ad0080..15887a224ffb96dffe6068a5291853fc2aee0b36 100644
+--- a/api.mjs
++++ b/api.mjs
+@@ -17376,7 +17376,7 @@ var init_statementCombiner = __esm({
+           checkConstraints: Object.values(checkConstraints)
+         }
+       ];
+-      if (Object.keys(indexes).length) {
++      if (action !== "push" && Object.keys(indexes).length) {
+         statements.push(...prepareCreateIndexesJson(name, "", indexes));
+       }
+       return statements;
+@@ -24552,10 +24552,41 @@ ${withStyle.errorWarning(
+       if (progressCallback) {
+         progressCallback("views", viewsCount, "done");
+       }
+-      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\((.*?)\)/gi;
+-      const unnamedCheckPattern = /CHECK\s*\((.*?)\)/gi;
++      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\(/gi;
++      const unnamedCheckPattern = /CHECK\s*\(/gi;
++      const extractChecks = (sql, pattern) => [...sql.matchAll(pattern)].map((match) => {
++        const start = match.index + match[0].length;
++        let end = start;
++        let depth = 1;
++        let quote;
++        for (; end < sql.length; end++) {
++          const character = sql[end];
++          if (quote) {
++            if (character === quote) {
++              if (sql[end + 1] === quote) {
++                end++;
++              } else {
++                quote = void 0;
++              }
++            }
++            continue;
++          }
++          if (character === "'" || character === '"' || character === "`") {
++            quote = character;
++          } else if (character === "[") {
++            quote = "]";
++          } else if (character === "(") {
++            depth++;
++          } else if (character === ")" && --depth === 0) {
++            break;
++          }
++        }
++        if (depth !== 0) {
++          throw new Error("Could not parse SQLite CHECK constraint");
++        }
++        return [...match, sql.slice(start, end)];
++      });
+       let checkCounter = 0;
+-      const checkConstraints = {};
+       const checks = await db.query(`SELECT
+ 		  name as "tableName",
+ 		  sql as "sql"
+@@ -24565,7 +24596,8 @@ ${withStyle.errorWarning(
+       for (const check of checks) {
+         if (!tablesFilter(check.tableName)) continue;
+         const { tableName, sql } = check;
+-        let namedChecks = [...sql.matchAll(namedCheckPattern)];
++        const checkConstraints = {};
++        let namedChecks = extractChecks(sql, namedCheckPattern);
+         if (namedChecks.length > 0) {
+           namedChecks.forEach(([_3, checkName, checkValue]) => {
+             checkConstraints[checkName] = {
+@@ -24574,7 +24606,7 @@ ${withStyle.errorWarning(
+             };
+           });
+         } else {
+-          let unnamedChecks = [...sql.matchAll(unnamedCheckPattern)];
++          let unnamedChecks = extractChecks(sql, unnamedCheckPattern);
+           unnamedChecks.forEach(([_3, checkValue]) => {
+             let checkName = `${tableName}_check_${++checkCounter}`;
+             checkConstraints[checkName] = {
+diff --git a/bin.cjs b/bin.cjs
+index c28f3e4732f0d911237dc1eb1bc466cefaa1b976..ad080fc75e6875b71005908bf7d688a4afa0bbfa 100755
+--- a/bin.cjs
++++ b/bin.cjs
+@@ -19103,10 +19103,41 @@ ${withStyle.errorWarning(
+       if (progressCallback) {
+         progressCallback("views", viewsCount, "done");
+       }
+-      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\((.*?)\)/gi;
+-      const unnamedCheckPattern = /CHECK\s*\((.*?)\)/gi;
++      const namedCheckPattern = /CONSTRAINT\s*["']?(\w+)["']?\s*CHECK\s*\(/gi;
++      const unnamedCheckPattern = /CHECK\s*\(/gi;
++      const extractChecks = (sql, pattern) => [...sql.matchAll(pattern)].map((match) => {
++        const start = match.index + match[0].length;
++        let end = start;
++        let depth = 1;
++        let quote;
++        for (; end < sql.length; end++) {
++          const character = sql[end];
++          if (quote) {
++            if (character === quote) {
++              if (sql[end + 1] === quote) {
++                end++;
++              } else {
++                quote = void 0;
++              }
++            }
++            continue;
++          }
++          if (character === "'" || character === '"' || character === "`") {
++            quote = character;
++          } else if (character === "[") {
++            quote = "]";
++          } else if (character === "(") {
++            depth++;
++          } else if (character === ")" && --depth === 0) {
++            break;
++          }
++        }
++        if (depth !== 0) {
++          throw new Error("Could not parse SQLite CHECK constraint");
++        }
++        return [...match, sql.slice(start, end)];
++      });
+       let checkCounter = 0;
+-      const checkConstraints = {};
+       const checks = await db.query(`SELECT
+ 		  name as "tableName",
+ 		  sql as "sql"
+@@ -19116,7 +19147,8 @@ ${withStyle.errorWarning(
+       for (const check2 of checks) {
+         if (!tablesFilter(check2.tableName)) continue;
+         const { tableName, sql } = check2;
+-        let namedChecks = [...sql.matchAll(namedCheckPattern)];
++        const checkConstraints = {};
++        let namedChecks = extractChecks(sql, namedCheckPattern);
+         if (namedChecks.length > 0) {
+           namedChecks.forEach(([_3, checkName, checkValue]) => {
+             checkConstraints[checkName] = {
+@@ -19125,7 +19157,7 @@ ${withStyle.errorWarning(
+             };
+           });
+         } else {
+-          let unnamedChecks = [...sql.matchAll(unnamedCheckPattern)];
++          let unnamedChecks = extractChecks(sql, unnamedCheckPattern);
+           unnamedChecks.forEach(([_3, checkValue]) => {
+             let checkName = `${tableName}_check_${++checkCounter}`;
+             checkConstraints[checkName] = {
+@@ -27397,7 +27429,7 @@ var init_statementCombiner = __esm({
+           checkConstraints: Object.values(checkConstraints)
+         }
+       ];
+-      if (Object.keys(indexes).length) {
++      if (action !== "push" && Object.keys(indexes).length) {
+         statements.push(...prepareCreateIndexesJson(name, "", indexes));
+       }
+       return statements;

@@ -23,3 +23,7 @@ minimumReleaseAgeExclude:
     - '@better-auth/prisma-adapter@1.7.24'
     - '@better-auth/telemetry@1.7.24'
     - better-auth@1.7.24
+
+patchedDependencies:
+    # SQLite CHECK introspection and duplicate indexes: https://github.com/drizzle-team/drizzle-orm/issues/4574
+    drizzle-kit@0.31.11: patches/drizzle-kit@0.31.11.patch

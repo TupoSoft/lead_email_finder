@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  drizzle-kit@0.31.11: 1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e
+
 importers:
 
   .:
@@ -294,7 +297,7 @@ importers:
         version: 1.20.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       better-auth:
         specifier: 1.7.24
-        version: 1.7.24(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.12(@types/node@26.6.6)(jsdom@27.4.0(@noble/hashes@2.4.0)(supports-color@10.2.2))(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
+        version: 1.7.24(drizzle-kit@0.31.11(patch_hash=1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e))(drizzle-orm@0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.12(@types/node@26.6.6)(jsdom@27.4.0(@noble/hashes@2.4.0)(supports-color@10.2.2))(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
       bullmq:
         specifier: ^5.58.4
         version: 5.81.5(supports-color@10.2.2)
@@ -406,7 +409,7 @@ importers:
         version: 8.23.1
       drizzle-kit:
         specifier: 0.31.11
-        version: 0.31.11
+        version: 0.31.11(patch_hash=1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e)
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@swc/core@1.16.22)(@types/node@26.6.6)(typescript@5.9.3)
@@ -13091,7 +13094,7 @@ snapshots:
 
   baseline-browser-mapping@2.11.35: {}
 
-  better-auth@1.7.24(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.12(@types/node@26.6.6)(jsdom@27.4.0(@noble/hashes@2.4.0)(supports-color@10.2.2))(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))):
+  better-auth@1.7.24(drizzle-kit@0.31.11(patch_hash=1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e))(drizzle-orm@0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@4.1.12(@types/node@26.6.6)(jsdom@27.4.0(@noble/hashes@2.4.0)(supports-color@10.2.2))(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))):
     dependencies:
       '@better-auth/core': 1.7.24(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.5(zod@4.6.7))(jose@6.2.16)(kysely@0.29.8)(nanostores@1.5.5)
       '@better-auth/drizzle-adapter': 1.7.24(@better-auth/core@1.7.24(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.5(zod@4.6.7))(jose@6.2.16)(kysely@0.29.8)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(drizzle-orm@0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1))
@@ -13111,7 +13114,7 @@ snapshots:
       nanostores: 1.5.5
       zod: 4.6.7
     optionalDependencies:
-      drizzle-kit: 0.31.11
+      drizzle-kit: 0.31.11(patch_hash=1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e)
       drizzle-orm: 0.45.4(@libsql/client@0.18.0)(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1)
       pg: 8.23.1
       react: 19.3.1
@@ -13756,7 +13759,7 @@ snapshots:
 
   dotenv@17.4.1: {}
 
-  drizzle-kit@0.31.11:
+  drizzle-kit@0.31.11(patch_hash=1346f83388442fcdc5d0cec8a86c43bb7a643e00adcbd1eb56661a00f455923e):
     dependencies:
       '@drizzle-team/brocli': 0.10.2
       '@esbuild-kit/esm-loader': 2.6.5
