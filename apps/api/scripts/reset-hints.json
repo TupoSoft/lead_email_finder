@@ -32,11 +32,6 @@
     {
         "type": "confirm_data_loss",
         "kind": "table",
-        "entity": ["public", "credit_provisioning_receipts"]
-    },
-    {
-        "type": "confirm_data_loss",
-        "kind": "table",
         "entity": ["public", "credit_ledger"]
     }
 ]

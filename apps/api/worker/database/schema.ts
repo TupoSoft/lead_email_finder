@@ -103,27 +103,6 @@ export const creditAccount = sqliteTable(
     ],
 )
 
-// Zero is a completed provisioning decision, not a pending grant.
-export const creditProvisioningReceipt = sqliteTable(
-    'credit_provisioning_receipts',
-    {
-        userId: text('user_id')
-            .notNull()
-            .references(() => user.id, { onDelete: 'cascade' }),
-        id: text('id').notNull().unique(),
-        allowance: integer('allowance').notNull(),
-        createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-    },
-    table => [
-        primaryKey({ columns: [table.userId] }),
-        check(
-            'credit_provisioning_allowance_valid',
-            // language=SQLite prefix="SELECT 1 WHERE "
-            sql`typeof(${table.allowance}) = 'integer' and ${table.allowance} between 0 and 9007199254740991`,
-        ),
-    ],
-)
-
 // Balance movements are appended; corrections are new entries rather than edits to history.
 export const creditLedger = sqliteTable(
     'credit_ledger',
@@ -131,7 +110,7 @@ export const creditLedger = sqliteTable(
         id: text('id').notNull(),
         userId: text('user_id')
             .notNull()
-            .references(() => creditAccount.userId, { onDelete: 'cascade' }),
+            .references(() => user.id, { onDelete: 'cascade' }),
         operationId: text('operation_id').notNull(),
         delta: integer('delta').notNull(),
         reason: text('reason').notNull(),

@@ -10,10 +10,10 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
             throw new Error('The initial credit allowance must be a nonnegative safe integer.')
         }
 
-        const receiptId = crypto.randomUUID()
+        const entryId = crypto.randomUUID()
         const now = Date.now()
 
-        // Only the winning receipt can append the initial grant, including zero.
+        // The unique initial ledger entry is the provisioning receipt, including zero.
         await this.database.batchSql([
             sql`
                 insert into credit_accounts (user_id, reserved, created_at, updated_at)
@@ -22,16 +22,10 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
                 on conflict (user_id) do nothing
             `,
             sql`
-                insert into credit_provisioning_receipts (user_id, id, allowance, created_at)
-                select id, ${receiptId}, ${allowance}, ${now} from users
-                where id = ${userId} and email_verified = 1
-                on conflict (user_id) do nothing
-            `,
-            sql`
                 insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
-                select id, user_id, 'initial-allowance', allowance, 'initial_allowance', created_at
-                from credit_provisioning_receipts
-                where user_id = ${userId} and id = ${receiptId}
+                select ${entryId}, id, 'initial-allowance', ${allowance}, 'initial_allowance', ${now}
+                from users where id = ${userId} and email_verified = 1
+                on conflict (user_id, operation_id) do nothing
             `,
         ])
     }
