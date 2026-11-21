@@ -10,7 +10,12 @@ export const user = snakeCase.table(
         email: text().notNull().unique(),
         emailVerified: integer({ mode: 'boolean' }).notNull().default(false),
         image: text(),
-        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
         updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
     },
     table => [primaryKey({ columns: [table.id] })],
@@ -90,8 +95,18 @@ export const creditAccount = snakeCase.table(
             .notNull()
             .references(() => user.id, { onDelete: 'cascade' }),
         reserved: integer('reserved').notNull().default(0),
-        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
+        updatedAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
     },
     table => [primaryKey({ columns: [table.userId] })],
 )
@@ -107,7 +122,12 @@ export const creditLedger = snakeCase.table(
         operationId: text().notNull(),
         delta: integer().notNull(),
         reason: text().notNull(),
-        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
     },
     table => [
         primaryKey({ columns: [table.id] }),
@@ -129,8 +149,18 @@ export const creditReservations = snakeCase.table(
         operationId: text().notNull(),
         amount: integer().notNull(),
         state: text({ enum: ['reserved', 'captured', 'released'] }).notNull(),
-        createdAt: integer({ mode: 'timestamp_ms' }).notNull(),
-        updatedAt: integer({ mode: 'timestamp_ms' }).notNull(),
+        createdAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
+        updatedAt: integer({ mode: 'timestamp_ms' })
+            .notNull()
+            .default(
+                // language=SQLite prefix="SELECT 1 WHERE "
+                sql`(unixepoch('subsecond') * 1000)`,
+            ),
     },
     table => [
         check(
