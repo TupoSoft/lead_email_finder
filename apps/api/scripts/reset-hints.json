@@ -33,5 +33,10 @@
         "type": "confirm_data_loss",
         "kind": "table",
         "entity": ["public", "credit_ledger"]
+    },
+    {
+        "type": "confirm_data_loss",
+        "kind": "table",
+        "entity": ["public", "credit_reservations"]
     }
 ]

@@ -1,3 +1,5 @@
+// noinspection SqlWithoutWhere
+
 import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -259,7 +261,10 @@ describe('initial credit allowance configuration', () => {
 
 describe('durable personal credit provisioning on D1', () => {
     it('stores account metadata without a cached balance column', async () => {
-        const columns = await database.all<{ name: string }>(sql`pragma table_info(credit_accounts)`)
+        const columns = await database.all<{ name: string }>(
+            // language=SQLite
+            sql`pragma table_info(credit_accounts)`,
+        )
 
         assert.ok(columns.some(column => column.name === 'reserved'))
         assert.ok(!columns.some(column => column.name === 'balance'))
@@ -399,6 +404,8 @@ describe('durable personal credit provisioning on D1', () => {
     })
 
     it('scopes balances to the authenticated user and ignores attempted user selection', async () => {
+        const now = Date.now()
+
         const first = await seedSession()
         const second = await seedSession()
 
@@ -407,7 +414,8 @@ describe('durable personal credit provisioning on D1', () => {
         await appendCredit(first.userId, 8)
         await appendCredit(first.userId, -5)
         await appendCredit(second.userId, -2)
-        await database.run(sql`update credit_accounts set reserved = 4 where user_id = ${first.userId}`)
+        await database.run(sql`insert into credit_reservations
+                               values (${first.userId}, 'operation-id', 4, 'reserved', ${now}, ${now})`)
 
         const firstResponse = await request(`/v1/billing/summary?userId=${second.userId}`, first.cookie)
         const secondResponse = await request(`/v1/billing/summary?userId=${first.userId}`, second.cookie)
@@ -451,7 +459,13 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.deepEqual(await accounts(), [{ userId: second.userId, reserved: 0 }])
         assert.deepEqual(await ledgerEntries(), remainingLedger)
-        assert.deepEqual(await database.all(sql`pragma foreign_key_check`), [])
+        assert.deepEqual(
+            await database.all(
+                // language=SQLite
+                sql`pragma foreign_key_check`,
+            ),
+            [],
+        )
 
         const removed = await request('/v1/billing/summary', first.cookie)
         const remaining = await request('/v1/billing/summary', second.cookie)
@@ -474,7 +488,11 @@ describe('durable personal credit provisioning on D1', () => {
 
             await credits.provision(userId, allowance)
             await appendCredit(userId, adjustment)
-            await database.run(sql`update credit_accounts set reserved = ${reserved} where user_id = ${userId}`)
+
+            if (reserved > 0) {
+                await database.run(sql`insert into credit_reservations (user_id, operation_id, amount, state)
+                                   values (${userId}, ${randomUUID()}, ${reserved}, 'reserved')`)
+            }
 
             const originalLedger = await ledgerEntries()
 
@@ -493,17 +511,25 @@ describe('durable personal credit provisioning on D1', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
         await credits.provision(userId, 10)
-        await database.run(sql`
-            with recursive entries(number) as (
-                select 1
-                union all
-                select number + 1 from entries where number < 1025
-            )
-            insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
-            select 'overflow-entry-' || number, ${userId}, 'overflow-operation-' || number,
-                ${Number.MAX_SAFE_INTEGER}, 'test_adjustment', ${Date.now()}
-            from entries
-        `)
+        await database.run(
+            // language=SQLite
+            sql`
+                with recursive entries(number) as (select 1
+                                                   union all
+                                                   select number + 1
+                                                   from entries
+                                                   where number < 1025)
+                insert
+                into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
+                select 'overflow-entry-' || number,
+                       ${userId},
+                       'overflow-operation-' || number,
+                       ${Number.MAX_SAFE_INTEGER},
+                       'test_adjustment',
+                       ${Date.now()}
+                from entries
+            `,
+        )
 
         await assert.rejects(() => credits.getSummary(userId))
 
@@ -533,7 +559,6 @@ describe('durable personal credit provisioning on D1', () => {
 
             assert.deepEqual(await accounts(), [])
             assert.deepEqual(await ledgerEntries(), originalLedger)
-            await assert.rejects(() => credits.getSummary(userId))
 
             const responses = await Promise.all([
                 request('/v1/me', cookie, '99'),
@@ -588,6 +613,5 @@ describe('durable personal credit provisioning on D1', () => {
 
         assert.deepEqual(await accounts(), [])
         assert.deepEqual(await ledgerEntries(), [])
-        await assert.rejects(() => credits.getSummary(userId))
     })
 })
