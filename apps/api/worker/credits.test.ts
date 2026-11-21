@@ -404,8 +404,6 @@ describe('durable personal credit provisioning on D1', () => {
     })
 
     it('scopes balances to the authenticated user and ignores attempted user selection', async () => {
-        const now = Date.now()
-
         const first = await seedSession()
         const second = await seedSession()
 
@@ -414,8 +412,10 @@ describe('durable personal credit provisioning on D1', () => {
         await appendCredit(first.userId, 8)
         await appendCredit(first.userId, -5)
         await appendCredit(second.userId, -2)
-        await database.run(sql`insert into credit_reservations
-                               values (${first.userId}, 'operation-id', 4, 'reserved', ${now}, ${now})`)
+        await database.run(sql`
+            insert into credit_reservations (user_id, operation_id, amount, state)
+            values (${first.userId}, 'operation-id', 4, 'reserved')
+        `)
 
         const firstResponse = await request(`/v1/billing/summary?userId=${second.userId}`, first.cookie)
         const secondResponse = await request(`/v1/billing/summary?userId=${first.userId}`, second.cookie)
