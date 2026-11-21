@@ -111,21 +111,21 @@ function accounts(): Promise<AccountRow[]> {
 }
 
 async function assertInitialCredits(userId: string, balance = 10): Promise<void> {
-    const creditAccounts = await database.all<{ userId: string; reserved: number }>(sql`
-        select user_id as userId, reserved from credit_accounts
-    `)
     const initialLedger = await database.all<{
         id: string
         userId: string
         operationId: string
         delta: number
         reason: string
-    }>(sql`
-        select id, user_id as userId, operation_id as operationId, delta, reason
-        from credit_ledger where operation_id = 'initial-allowance'
-    `)
+    }>(
+        // language=SQLite
+        sql`
+            select id, user_id as userId, operation_id as operationId, delta, reason
+            from credit_ledger
+            where operation_id = 'initial-allowance'
+        `,
+    )
 
-    assert.deepEqual(creditAccounts, [{ userId, reserved: 0 }])
     assert.equal(initialLedger.length, 1)
     assert.ok(initialLedger[0].id)
     assert.partialDeepStrictEqual(initialLedger[0], {
@@ -417,7 +417,6 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(failed)
             assert.equal((await users()).length, 1)
             assert.deepEqual(await database.all(sql`select id from sessions`), [])
-            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
             assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
             assert.ok(!JSON.stringify(errorLog.mock.calls).includes('synthetic credit failure'))
         } finally {
@@ -543,7 +542,6 @@ describe('Google redirect OAuth through simulated provider transport', () => {
             await assertRejected(await callback(await begin(), identity))
             assert.deepEqual(await users(), [])
             assert.deepEqual(await accounts(), [])
-            assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
             assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
 
             const verifiedLocal = await request(await magicLink(email))
@@ -585,7 +583,6 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         )
         assert.deepEqual(await users(), [{ id, email: 'local-unverified@example.test', emailVerified: 0 }])
         assert.deepEqual(await accounts(), [])
-        assert.deepEqual(await database.all(sql`select user_id from credit_accounts`), [])
         assert.deepEqual(await database.all(sql`select user_id from credit_ledger`), [])
     })
 
