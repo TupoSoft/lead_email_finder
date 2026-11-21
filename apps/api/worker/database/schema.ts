@@ -88,29 +88,6 @@ export const rateLimit = snakeCase.table(
     table => [primaryKey({ columns: [table.id] })],
 )
 
-export const creditAccount = snakeCase.table(
-    'credit_accounts',
-    {
-        userId: text()
-            .notNull()
-            .references(() => user.id, { onDelete: 'cascade' }),
-        reserved: integer('reserved').notNull().default(0),
-        createdAt: integer({ mode: 'timestamp_ms' })
-            .notNull()
-            .default(
-                // language=SQLite prefix="SELECT 1 WHERE "
-                sql`(unixepoch('subsecond') * 1000)`,
-            ),
-        updatedAt: integer({ mode: 'timestamp_ms' })
-            .notNull()
-            .default(
-                // language=SQLite prefix="SELECT 1 WHERE "
-                sql`(unixepoch('subsecond') * 1000)`,
-            ),
-    },
-    table => [primaryKey({ columns: [table.userId] })],
-)
-
 // Balance movements are appended; corrections are new entries rather than edits to history.
 export const creditLedger = snakeCase.table(
     'credit_ledger',
