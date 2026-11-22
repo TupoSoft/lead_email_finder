@@ -11,24 +11,16 @@ export class D1CreditAccountsRepository implements CreditAccountsRepository {
             throw new Error('The initial credit allowance must be a nonnegative safe integer.')
         }
 
-        const entryId = crypto.randomUUID()
-        const now = Date.now()
-
-        // The unique initial ledger entry is the provisioning receipt, including zero.
-        await this.database.batchSql([
+        await this.database.run(
             sql`
-                insert into credit_accounts (user_id, reserved, created_at, updated_at)
-                select id, 0, ${now}, ${now} from users
-                where id = ${userId} and email_verified = 1
-                on conflict (user_id) do nothing
-            `,
-            sql`
-                insert into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
-                select ${entryId}, id, 'initial-allowance', ${allowance}, 'initial_allowance', ${now}
-                from users where id = ${userId} and email_verified = 1
+                insert into credit_ledger (id, user_id, operation_id, delta, reason)
+                select ${crypto.randomUUID()}, id, 'initial-allowance', ${allowance}, 'initial_allowance'
+                from users
+                where id = ${userId}
+                  and email_verified = 1
                 on conflict (user_id, operation_id) do nothing
             `,
-        ])
+        )
     }
 
     async getSummary(userId: string): Promise<CreditSummary> {
