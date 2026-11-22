@@ -4,7 +4,8 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { describe, it, vi, type MockInstance } from 'vitest'
 import { wrapCanonicalIdentityAdapter } from './auth-identity-adapter'
 import { betterAuthOptions } from './auth-options'
-import { account, user } from './database/schema'
+import { users } from './database/schema/users'
+import { accounts } from '@/database/schema/accounts.ts'
 
 function fixture(): {
     create: MockInstance<DBAdapter['create']>
@@ -13,7 +14,7 @@ function fixture(): {
 } {
     const adapter = drizzleAdapter(
         {},
-        { provider: 'sqlite', transaction: false, schema: { user, account } },
+        { provider: 'sqlite', transaction: false, schema: { user: users, account: accounts } },
     )(betterAuthOptions)
     const create = vi.spyOn(adapter, 'create')
     const findOne = vi.spyOn(adapter, 'findOne')

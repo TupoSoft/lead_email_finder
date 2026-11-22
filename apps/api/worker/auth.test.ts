@@ -10,7 +10,11 @@ import app from './app'
 import { createAuth, requireApplicationMutation, requireVerifiedUser } from './auth'
 import { environmentSchema, type WorkerEnvironment } from './environment'
 import { createDatabase, type Database } from '@/database/connection'
-import { account, rateLimit, session, user, verification } from '@/database/schema'
+import { sessions } from '@/database/schema/sessions.ts'
+import { accounts } from '@/database/schema/accounts.ts'
+import { authRateLimits } from '@/database/schema/auth-rate-limits.ts'
+import { users } from '@/database/schema/users.ts'
+import { verifications } from '@/database/schema/verifications.ts'
 
 const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
@@ -37,8 +41,8 @@ function signedCookie(token: string, baseUrl = origin): string {
 }
 
 async function seedSession(options: { age?: number; verified?: boolean; expiresAt?: Date } = {}): Promise<{
-    currentUser: typeof user.$inferSelect
-    currentSession: typeof session.$inferSelect
+    currentUser: typeof users.$inferSelect
+    currentSession: typeof sessions.$inferSelect
     cookie: string
 }> {
     const now = Date.now()
@@ -63,8 +67,8 @@ async function seedSession(options: { age?: number; verified?: boolean; expiresA
         updatedAt: createdAt,
     }
 
-    await database.insert(user).values(currentUser)
-    await database.insert(session).values(currentSession)
+    await database.insert(users).values(currentUser)
+    await database.insert(sessions).values(currentSession)
 
     return { currentUser, currentSession, cookie: signedCookie(currentSession.token) }
 }
@@ -89,11 +93,11 @@ afterAll(async () => {
 
 beforeEach(async () => {
     await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_session_deletion').run()
-    await database.delete(session)
-    await database.delete(account)
-    await database.delete(user)
-    await database.delete(verification)
-    await database.delete(rateLimit)
+    await database.delete(sessions)
+    await database.delete(accounts)
+    await database.delete(users)
+    await database.delete(verifications)
+    await database.delete(authRateLimits)
 })
 
 describe('Worker startup configuration errors', () => {
@@ -356,7 +360,7 @@ describe('D1 Better Auth sessions', () => {
         })
         assert.deepEqual(response.headers.getSetCookie(), [])
         assert.deepEqual(
-            await database.select().from(session).where(eq(session.id, currentSession.id)).get(),
+            await database.select().from(sessions).where(eq(sessions.id, currentSession.id)).get(),
             currentSession,
         )
     })
@@ -366,7 +370,7 @@ describe('D1 Better Auth sessions', () => {
         const before = Date.now()
 
         const response = await request('/v1/me', { headers: { cookie } })
-        const refreshed = await database.select().from(session).where(eq(session.id, currentSession.id)).get()
+        const refreshed = await database.select().from(sessions).where(eq(sessions.id, currentSession.id)).get()
 
         assert.equal(response.status, 200)
         assert.ok(refreshed)
@@ -394,7 +398,7 @@ describe('D1 Better Auth sessions', () => {
         const { currentSession, cookie } = await seedSession({ age: day - 60_000 })
 
         const response = await request('/v1/me', { headers: { cookie } })
-        const unchanged = await database.select().from(session).where(eq(session.id, currentSession.id)).get()
+        const unchanged = await database.select().from(sessions).where(eq(sessions.id, currentSession.id)).get()
 
         assert.equal(response.status, 200)
         assert.deepEqual(response.headers.getSetCookie(), [])
@@ -454,14 +458,14 @@ describe('D1 Better Auth sessions', () => {
             response.headers.getSetCookie().some(value => /session_token=.*Max-Age=0/.test(value)),
             true,
         )
-        assert.equal(await database.select().from(session).where(eq(session.id, currentSession.id)).get(), undefined)
+        assert.equal(await database.select().from(sessions).where(eq(sessions.id, currentSession.id)).get(), undefined)
     })
 
     it('checks D1 on every request so revocation immediately rejects an existing cookie', async () => {
         const { currentSession, cookie } = await seedSession()
 
         assert.equal((await request('/v1/me', { headers: { cookie } })).status, 200)
-        await database.delete(session).where(eq(session.id, currentSession.id))
+        await database.delete(sessions).where(eq(sessions.id, currentSession.id))
 
         const response = await request('/v1/me', { headers: { cookie } })
 
@@ -517,13 +521,13 @@ describe('D1 Better Auth sessions', () => {
             forceAllowId: true,
         })
 
-        assert.partialDeepStrictEqual(await database.select().from(account).where(eq(account.id, accountId)).get(), {
+        assert.partialDeepStrictEqual(await database.select().from(accounts).where(eq(accounts.id, accountId)).get(), {
             userId: currentUser.id,
             providerId: 'google',
             accessTokenExpiresAt: now,
         })
         assert.partialDeepStrictEqual(
-            await database.select().from(verification).where(eq(verification.id, verificationId)).get(),
+            await database.select().from(verifications).where(eq(verifications.id, verificationId)).get(),
             {
                 identifier: 'synthetic-identifier',
                 value: 'synthetic-private-value',
@@ -569,7 +573,7 @@ describe('native sign-out and endpoint restrictions', () => {
             true,
         )
         assert.equal((await request('/v1/me', { headers: { cookie } })).status, 401)
-        assert.ok((await database.select().from(rateLimit)).length > 0)
+        assert.ok((await database.select().from(authRateLimits)).length > 0)
     })
 
     it('does not report successful logout when the database rejects revocation', async () => {
