@@ -19,25 +19,25 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
 
         const result = await this.insertReservation(userId, operationId, amount)
 
-        if (result === undefined) {
-            const existing = await this.getExistingReservation(userId, operationId)
-
-            if (existing === undefined) {
-                return { kind: 'insufficient-credits' }
-            }
-
-            if (existing.amount !== amount) {
-                return { kind: 'amount-conflict' }
-            }
-
-            if (existing.state === 'captured' || existing.state === 'released') {
-                return { kind: 'already-closed', state: existing.state }
-            }
-
-            return { kind: 'replay' }
+        if (result !== undefined) {
+            return { kind: 'admitted' }
         }
 
-        return { kind: 'admitted' }
+        const existing = await this.getExistingReservation(userId, operationId)
+
+        if (existing === undefined) {
+            return { kind: 'insufficient-credits' }
+        }
+
+        if (existing.amount !== amount) {
+            return { kind: 'amount-conflict' }
+        }
+
+        if (existing.state === 'captured' || existing.state === 'released') {
+            return { kind: 'already-closed', state: existing.state }
+        }
+
+        return { kind: 'replay' }
     }
 
     private async insertReservation(
