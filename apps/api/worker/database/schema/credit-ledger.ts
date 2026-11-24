@@ -26,7 +26,7 @@ export const creditLedger = snakeCase.table(
         check(
             'credit_ledger_delta_valid',
             // language=SQLite prefix="SELECT 1 WHERE "
-            sql`typeof(${table.delta}) = 'integer' and ${table.delta} between -9007199254740991 and 9007199254740991`,
+            sql`typeof(${table.delta}) = 'integer' and ${table.delta} between ${Number.MIN_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}`.inlineParams(),
         ),
     ],
 )

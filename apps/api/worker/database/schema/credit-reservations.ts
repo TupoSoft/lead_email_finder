@@ -33,7 +33,7 @@ export const creditReservations = snakeCase.table(
         check(
             'credit_reservation_amount_positive',
             // language=SQLite prefix="SELECT 1 WHERE "
-            sql`${table.amount} > 0`,
+            sql`typeof(${table.amount}) = 'integer' and ${table.amount} between 1 and ${Number.MAX_SAFE_INTEGER}`.inlineParams(),
         ),
         primaryKey({ columns: [table.userId, table.operationId] }),
     ],

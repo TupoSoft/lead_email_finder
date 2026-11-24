@@ -1,10 +1,10 @@
-export interface ReservationItem {
-    readonly operationId: string
-    readonly amount: number
-}
-
-export type AdmissionResult = { kind: 'admitted' } | { kind: 'insufficient-credits' }
+export type AdmissionResult =
+    | { kind: 'admitted' }
+    | { kind: 'replay' }
+    | { kind: 'already-closed'; state: 'captured' | 'released' }
+    | { kind: 'insufficient-credits' }
+    | { kind: 'amount-conflict' }
 
 export interface CreditReservationRepository {
-    reserveMany(userId: string, items: readonly ReservationItem[]): Promise<AdmissionResult>
+    reserve(userId: string, operationId: string, amount: number): Promise<AdmissionResult>
 }
