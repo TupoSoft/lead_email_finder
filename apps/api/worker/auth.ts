@@ -17,7 +17,6 @@ import { browserAuthFailure, browserAuthPolicy, browserAuthResponse } from './au
 import { betterAuthOptions } from './auth-options'
 import { wrapCanonicalIdentityAdapter } from './auth-identity-adapter'
 import { createDatabase, type Database } from '@/database/connection'
-import { account, rateLimit, session, user, verification } from '@/database/schema'
 import {
     authConfigurationSchema,
     environmentSchema,
@@ -25,6 +24,11 @@ import {
     type WorkerEnvironment,
 } from './environment'
 import { D1CreditAccountsRepository } from '@/adapters/outbound/d1-credit-accounts-repository'
+import { sessions } from '@/database/schema/sessions.ts'
+import { users } from '@/database/schema/users.ts'
+import { accounts } from '@/database/schema/accounts.ts'
+import { verifications } from '@/database/schema/verifications.ts'
+import { authRateLimits } from '@/database/schema/auth-rate-limits.ts'
 
 export function createAuth(
     database: Database,
@@ -101,7 +105,13 @@ export function createAuth(
             drizzleAdapter(database, {
                 provider: 'sqlite',
                 transaction: false,
-                schema: { user, session, account, verification, rateLimit },
+                schema: {
+                    user: users,
+                    session: sessions,
+                    account: accounts,
+                    verification: verifications,
+                    rateLimit: authRateLimits,
+                },
             }),
         ),
         plugins: [

@@ -80,6 +80,16 @@ async function appendCredit(userId: string, delta: number, operationId: string =
     `)
 }
 
+function assertLedgerBalanceFailure(error: unknown): true {
+    assert.ok(error instanceof Error)
+
+    const cause = error.cause instanceof Error ? error.cause : error
+
+    assert.match(cause.message, /Credit ledger balance exceeds safe integer range\./)
+
+    return true
+}
+
 beforeAll(async () => {
     platform = await getPlatformProxy<Pick<Env, 'DB' | 'AUTH_EMAIL' | 'AUTH_MAIL_FROM'>>({
         configPath: resolve(import.meta.dirname, '../wrangler.jsonc'),
@@ -435,7 +445,6 @@ describe('durable personal credit provisioning on D1', () => {
 
     const invalidTotals = [
         { name: 'negative balance', allowance: 10, adjustment: -11, reserved: 0 },
-        { name: 'unsafe integer balance', allowance: Number.MAX_SAFE_INTEGER, adjustment: 1, reserved: 0 },
         { name: 'reserved credits exceeding the balance', allowance: 10, adjustment: -8, reserved: 3 },
     ]
 
@@ -464,40 +473,54 @@ describe('durable personal credit provisioning on D1', () => {
         })
     }
 
-    it('fails closed when SQLite cannot represent the ledger aggregate', async () => {
+    it('rejects a ledger insert above the safe balance without changing the ledger or summary', async () => {
         const { userId, cookie } = await seedSession()
-        vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-        await credits.provision(userId, 10)
-        await database.run(
-            // language=SQLite
-            sql`
-                with recursive entries(number) as (select 1
-                                                   union all
-                                                   select number + 1
-                                                   from entries
-                                                   where number < 1025)
-                insert
-                into credit_ledger (id, user_id, operation_id, delta, reason, created_at)
-                select 'overflow-entry-' || number,
-                       ${userId},
-                       'overflow-operation-' || number,
-                       ${Number.MAX_SAFE_INTEGER},
-                       'test_adjustment',
-                       ${Date.now()}
-                from entries
-            `,
-        )
+        await credits.provision(userId, Number.MAX_SAFE_INTEGER - 1)
+        await appendCredit(userId, 1)
 
-        await assert.rejects(() => credits.getSummary(userId))
+        const originalLedger = await ledgerEntries()
+        const summary = { balance: Number.MAX_SAFE_INTEGER, reserved: 0, available: Number.MAX_SAFE_INTEGER }
+
+        assert.deepEqual(await credits.getSummary(userId), summary)
+
+        await assert.rejects(() => appendCredit(userId, 1), assertLedgerBalanceFailure)
+
+        assert.deepEqual(await credits.getSummary(userId), summary)
 
         const response = await request('/v1/billing/summary', cookie)
-        const entries = await ledgerEntries()
 
-        assert.equal(response.status, 500)
-        assert.deepEqual(await response.json(), { status: 'error' })
-        assert.equal(entries.filter(entry => entry.operationId === 'initial-allowance').length, 1)
-        assert.equal(entries.length, 1026)
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), summary)
+        assert.deepEqual(await ledgerEntries(), originalLedger)
+    })
+
+    it('rolls back every write in a batch when a ledger insert exceeds the safe balance', async () => {
+        const { userId, cookie } = await seedSession()
+
+        await credits.provision(userId, Number.MAX_SAFE_INTEGER - 1)
+
+        const originalLedger = await ledgerEntries()
+        const summary = await credits.getSummary(userId)
+
+        await assert.rejects(
+            () =>
+                database.batchSql([
+                    sql`insert into credit_ledger (id, user_id, operation_id, delta, reason)
+                        values (${randomUUID()}, ${userId}, ${randomUUID()}, 1, 'test_adjustment')`,
+                    sql`insert into credit_ledger (id, user_id, operation_id, delta, reason)
+                        values (${randomUUID()}, ${userId}, ${randomUUID()}, 1, 'test_adjustment')`,
+                ]),
+            assertLedgerBalanceFailure,
+        )
+
+        assert.deepEqual(await credits.getSummary(userId), summary)
+
+        const response = await request('/v1/billing/summary', cookie)
+
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), summary)
+        assert.deepEqual(await ledgerEntries(), originalLedger)
     })
 
     it('rejects fractional and unsafe signed ledger deltas at the database boundary', async () => {

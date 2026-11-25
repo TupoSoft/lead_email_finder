@@ -6,7 +6,11 @@ import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import app from './app'
 import type { WorkerEnvironment } from './environment'
 import { createDatabase, type Database } from '@/database/connection'
-import { account, rateLimit, session, user, verification } from '@/database/schema'
+import { sessions } from '@/database/schema/sessions.ts'
+import { accounts } from '@/database/schema/accounts.ts'
+import { verifications } from '@/database/schema/verifications.ts'
+import { authRateLimits } from '@/database/schema/auth-rate-limits.ts'
+import { users } from '@/database/schema/users.ts'
 
 const origin = 'http://localhost:53000'
 const secret = 'test-only-better-auth-secret-at-least-thirty-two-characters'
@@ -112,11 +116,11 @@ beforeEach(async () => {
     messages = []
     deliveryError = undefined
 
-    await database.delete(session)
-    await database.delete(account)
-    await database.delete(user)
-    await database.delete(verification)
-    await database.delete(rateLimit)
+    await database.delete(sessions)
+    await database.delete(accounts)
+    await database.delete(users)
+    await database.delete(verifications)
+    await database.delete(authRateLimits)
 })
 
 describe('public D1 Better Auth magic links', () => {
@@ -124,8 +128,8 @@ describe('public D1 Better Auth magic links', () => {
         const email = 'new-person@example.test'
         const link = await issueLink(email, '/app/billing?view=credits')
 
-        assert.deepEqual(await database.select().from(user), [])
-        assert.deepEqual(await database.select().from(session), [])
+        assert.deepEqual(await database.select().from(users), [])
+        assert.deepEqual(await database.select().from(sessions), [])
         assert.equal(messages[0].to, email)
 
         const registered = await redeem(link)
@@ -137,17 +141,17 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(await registered.text(), '')
 
         const me = await request('/v1/me', { headers: { Cookie: sessionCookie(registered) } })
-        const users = await database.select().from(user)
-        const sessions = await database.select().from(session)
+        const allUsers = await database.select().from(users)
+        const allSessions = await database.select().from(sessions)
 
-        assert.equal(users.length, 1)
-        assert.equal(users[0].email, email)
-        assert.equal(users[0].emailVerified, true)
-        assert.equal(sessions.length, 1)
-        assert.equal(sessions[0].userId, users[0].id)
+        assert.equal(allUsers.length, 1)
+        assert.equal(allUsers[0].email, email)
+        assert.equal(allUsers[0].emailVerified, true)
+        assert.equal(allSessions.length, 1)
+        assert.equal(allSessions[0].userId, allUsers[0].id)
         assert.equal(me.status, 200)
         assert.deepEqual(await me.json(), {
-            user: { id: users[0].id, name: '', email, emailVerified: true, image: null },
+            user: { id: allUsers[0].id, name: '', email, emailVerified: true, image: null },
         })
 
         const loginLink = await issueLink(email)
@@ -156,14 +160,14 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(signedIn.status, 302)
         assert.equal(signedIn.headers.get('location'), `${origin}/app`)
         assert.notEqual(sessionCookie(signedIn), sessionCookie(registered))
-        assert.equal((await database.select().from(user)).length, 1)
-        assert.equal((await database.select().from(session)).length, 2)
+        assert.equal((await database.select().from(users)).length, 1)
+        assert.equal((await database.select().from(sessions)).length, 2)
     })
 
     it('stores only the SHA-256 token hash with an exact five-minute lifetime', async () => {
         const before = Date.now()
         const link = await issueLink()
-        const records = await database.select().from(verification)
+        const records = await database.select().from(verifications)
         const token = link.searchParams.get('token')
 
         assert.ok(token)
@@ -189,11 +193,11 @@ describe('public D1 Better Auth magic links', () => {
             assertInvalidLink(response)
         }
 
-        assert.equal((await database.select().from(session)).length, 1)
-        assert.equal((await database.select().from(user)).length, 1)
-        assert.deepEqual(await database.select().from(verification), [])
+        assert.equal((await database.select().from(sessions)).length, 1)
+        assert.equal((await database.select().from(users)).length, 1)
+        assert.deepEqual(await database.select().from(verifications), [])
         assertInvalidLink(await redeem(link))
-        assert.equal((await database.select().from(session)).length, 1)
+        assert.equal((await database.select().from(sessions)).length, 1)
 
         link.searchParams.set('callbackURL', '/app?error=INVALID_TOKEN')
         link.searchParams.set('errorCallbackURL', '/app?error=INVALID_TOKEN')
@@ -204,12 +208,12 @@ describe('public D1 Better Auth magic links', () => {
     it('rejects an expired token without registering a user or issuing a session', async () => {
         const link = await issueLink()
 
-        await database.update(verification).set({ expiresAt: new Date(Date.now() - 1) })
+        await database.update(verifications).set({ expiresAt: new Date(Date.now() - 1) })
 
         assertInvalidLink(await redeem(link))
         assertInvalidLink(await redeem(link))
-        assert.deepEqual(await database.select().from(user), [])
-        assert.deepEqual(await database.select().from(session), [])
+        assert.deepEqual(await database.select().from(users), [])
+        assert.deepEqual(await database.select().from(sessions), [])
     })
 
     it('persists request limits across fresh auth instances and allows recovery after the window', async () => {
@@ -228,9 +232,9 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(blocked.headers.get('cache-control'), 'no-store')
         assert.equal(blocked.headers.get('referrer-policy'), 'no-referrer')
         assert.equal(messages.length, 5)
-        assert.ok((await database.select().from(rateLimit)).some(record => record.count >= 5))
+        assert.ok((await database.select().from(authRateLimits)).some(record => record.count >= 5))
 
-        await database.update(rateLimit).set({ lastRequest: Date.now() - 61_000 })
+        await database.update(authRateLimits).set({ lastRequest: Date.now() - 61_000 })
 
         assert.equal((await submit({ email: `${randomUUID()}@example.test` })).status, 200)
         assert.equal(messages.length, 6)
@@ -253,7 +257,7 @@ describe('public D1 Better Auth magic links', () => {
         assert.ok(Number(blocked.headers.get('retry-after')) > 0)
         assert.equal(blocked.headers.get('cache-control'), 'no-store')
         assert.equal(blocked.headers.get('referrer-policy'), 'no-referrer')
-        assert.deepEqual(await database.select().from(session), [])
+        assert.deepEqual(await database.select().from(sessions), [])
     })
 
     it('enforces the request budget when submissions arrive concurrently', async () => {
@@ -264,7 +268,7 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(responses.filter(response => response.status === 200).length, 5)
         assert.equal(responses.filter(response => response.status === 429).length, 7)
         assert.equal(messages.length, 5)
-        assert.equal((await database.select().from(verification)).length, 5)
+        assert.equal((await database.select().from(verifications)).length, 5)
     })
 
     it('rejects unsafe callback fields before issuing or delivering a link', async () => {
@@ -306,7 +310,7 @@ describe('public D1 Better Auth magic links', () => {
         }
 
         assert.deepEqual(messages, [])
-        assert.deepEqual(await database.select().from(verification), [])
+        assert.deepEqual(await database.select().from(verifications), [])
     })
 
     it('rejects tampered callback fields without consuming the token or redirecting outside the application', async () => {
@@ -317,12 +321,12 @@ describe('public D1 Better Auth magic links', () => {
             tampered.searchParams.set(field, 'https://attacker.example/steal')
 
             assertInvalidLink(await redeem(tampered))
-            assert.equal((await database.select().from(verification)).length, 1)
-            assert.deepEqual(await database.select().from(session), [])
+            assert.equal((await database.select().from(verifications)).length, 1)
+            assert.deepEqual(await database.select().from(sessions), [])
         }
 
         assert.equal((await redeem(link)).status, 302)
-        assert.equal((await database.select().from(session)).length, 1)
+        assert.equal((await database.select().from(sessions)).length, 1)
     })
 
     it('forces a safe redirect when callbackURL is omitted instead of returning native JSON credentials', async () => {
@@ -368,10 +372,10 @@ describe('public D1 Better Auth magic links', () => {
             assert.equal(response.status, 404)
         }
 
-        assert.equal((await database.select().from(verification)).length, 1)
-        assert.deepEqual(await database.select().from(session), [])
+        assert.equal((await database.select().from(verifications)).length, 1)
+        assert.deepEqual(await database.select().from(sessions), [])
         assert.equal((await redeem(link)).status, 302)
-        assert.equal((await database.select().from(session)).length, 1)
+        assert.equal((await database.select().from(sessions)).length, 1)
     })
 
     it('requires same-origin JSON submission and keeps unrelated native auth routes private', async () => {
@@ -415,7 +419,7 @@ describe('public D1 Better Auth magic links', () => {
         }
 
         assert.deepEqual(messages, [])
-        assert.deepEqual(await database.select().from(verification), [])
+        assert.deepEqual(await database.select().from(verifications), [])
     })
 
     it('returns generic confirmation for both registration and existing-account requests', async () => {
@@ -433,7 +437,7 @@ describe('public D1 Better Auth magic links', () => {
         assert.deepEqual(firstBody, { status: true })
         assert.deepEqual(await existing.json(), firstBody)
         assert.deepEqual(await newAddress.json(), firstBody)
-        assert.equal((await database.select().from(user)).length, 1)
+        assert.equal((await database.select().from(users)).length, 1)
     })
 
     it('reports delivery failure without creating a usable token or exposing provider details', async () => {
@@ -446,9 +450,9 @@ describe('public D1 Better Auth magic links', () => {
             assert.equal(response.status, 503)
             assert.deepEqual(await response.json(), { code: 'magic_link_delivery_failed' })
             assert.deepEqual(response.headers.getSetCookie(), [])
-            assert.deepEqual(await database.select().from(verification), [])
-            assert.deepEqual(await database.select().from(user), [])
-            assert.deepEqual(await database.select().from(session), [])
+            assert.deepEqual(await database.select().from(verifications), [])
+            assert.deepEqual(await database.select().from(users), [])
+            assert.deepEqual(await database.select().from(sessions), [])
             assertInvalidLink(await redeem(capturedLink()))
 
             const logged = JSON.stringify(errorLog.mock.calls)
@@ -464,7 +468,7 @@ describe('public D1 Better Auth magic links', () => {
         const retry = await issueLink('private-recipient@example.test')
 
         assert.equal((await redeem(retry)).status, 302)
-        assert.equal((await database.select().from(session)).length, 1)
+        assert.equal((await database.select().from(sessions)).length, 1)
 
         const deliveredMessages = messages.length
         const databaseErrorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
