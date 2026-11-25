@@ -1,4 +1,8 @@
-import { AdmissionResult, CreditReservationRepository } from '@/application/ports/credit-reservation-repository'
+import {
+    AdmissionResult,
+    CreditReservationRepository,
+    ReleaseResult,
+} from '@/application/ports/credit-reservation-repository'
 import { Database } from '@/database/connection.ts'
 import { sql } from 'drizzle-orm'
 import { creditReservations } from '@/database/schema/credit-reservations.ts'
@@ -66,6 +70,41 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
                 from credit_reservations
                 where user_id = ${userId}
                   and operation_id = ${operationId}`,
+        )
+    }
+
+    async release(userId: string, operationId: string): Promise<ReleaseResult> {
+        const receipt = await this.releaseReservation(userId, operationId)
+
+        if (receipt !== undefined) {
+            return { kind: 'released' }
+        }
+
+        const existing = await this.getExistingReservation(userId, operationId)
+
+        if (existing === undefined) {
+            return { kind: 'not-found' }
+        }
+
+        if (existing.state === 'captured') {
+            return { kind: 'already-captured' }
+        }
+
+        if (existing.state === 'released') {
+            return { kind: 'replay' }
+        }
+
+        return { kind: 'not-found' }
+    }
+
+    private async releaseReservation(userId: string, operationId: string): Promise<ReservationReceipt | undefined> {
+        return await this.database.get<ReservationReceipt>(
+            sql`update credit_reservations
+                set state = 'released'
+                where user_id = ${userId}
+                  and operation_id = ${operationId}
+                  and state not in ('released', 'captured')
+                returning amount, state`,
         )
     }
 }
