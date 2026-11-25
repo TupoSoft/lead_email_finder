@@ -120,6 +120,53 @@ afterAll(async () => {
 })
 
 describe(D1CreditReservationRepository.name, () => {
+    describe('identifier validation', () => {
+        const methods = [
+            {
+                name: 'reserve',
+                invoke: (userId: string, operationId: string) => reservations.reserve(userId, operationId, 1),
+            },
+            {
+                name: 'release',
+                invoke: (userId: string, operationId: string) => reservations.release(userId, operationId),
+            },
+        ]
+
+        const invalidIdentifiers = [
+            { name: 'empty', value: '' },
+            { name: 'whitespace-only', value: ' \t\n ' },
+        ]
+
+        const fields = [
+            { name: 'userId', error: /user.*(?:empty|required|blank)/i },
+            { name: 'operationId', error: /operation.*(?:empty|required|blank)/i },
+        ]
+
+        for (const method of methods) {
+            describe(method.name, () => {
+                for (const field of fields) {
+                    for (const invalid of invalidIdentifiers) {
+                        it(`rejects ${invalid.name} ${field.name} with a validation error and no mutation`, async () => {
+                            const userId = await createUser(10)
+                            await seedReservation(userId, 'verification-1', 3)
+                            const original = await creditState(userId)
+                            const summary = await credits.getSummary(userId)
+                            const inputUserId = field.name === 'userId' ? invalid.value : userId
+                            const inputOperationId = field.name === 'operationId' ? invalid.value : 'verification-1'
+                            const inputUserOriginal = await creditState(inputUserId)
+
+                            await assert.rejects(() => method.invoke(inputUserId, inputOperationId), field.error)
+
+                            assert.deepEqual(await creditState(userId), original)
+                            assert.deepEqual(await creditState(inputUserId), inputUserOriginal)
+                            assert.deepEqual(await credits.getSummary(userId), summary)
+                        })
+                    }
+                }
+            })
+        }
+    })
+
     describe('release', () => {
         it('restores available credits while preserving other holds and the ledger', async () => {
             const userId = await createUser(10)
@@ -647,16 +694,6 @@ describe(D1CreditReservationRepository.name, () => {
                     assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
                 })
             }
-
-            it('rejects an empty operation ID with a validation error and no mutation', async () => {
-                const userId = await createUser(10)
-                const original = await creditState(userId)
-
-                await assert.rejects(() => reservations.reserve(userId, '', 1), /operation.*(?:empty|required|blank)/i)
-
-                assert.deepEqual(await creditState(userId), original)
-                assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
-            })
 
             it('denies a user with no credits and no initial-allowance receipt', async () => {
                 const userId = await createUser()

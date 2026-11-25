@@ -13,13 +13,9 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
     constructor(private readonly database: Database) {}
 
     async reserve(userId: string, operationId: string, amount: number): Promise<AdmissionResult> {
-        if (operationId.trim() === '') {
-            throw new Error("The operationId is required and can't be blank")
-        }
-
-        if (!Number.isSafeInteger(amount) || amount <= 0) {
-            throw new Error('The amount must be a positive safe integer')
-        }
+        D1CreditReservationRepository.assertUserIdNotEmpty(userId)
+        D1CreditReservationRepository.assertOperationIdNonEmpty(operationId)
+        D1CreditReservationRepository.assertValidAmount(amount)
 
         const result = await this.insertReservation(userId, operationId, amount)
 
@@ -42,6 +38,24 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
         }
 
         return { kind: 'replay' }
+    }
+
+    private static assertValidAmount(amount: number): void {
+        if (!Number.isSafeInteger(amount) || amount <= 0) {
+            throw new Error('The amount must be a positive safe integer')
+        }
+    }
+
+    private static assertOperationIdNonEmpty(operationId: string): void {
+        if (operationId.trim() === '') {
+            throw new Error("The operationId is required and can't be blank")
+        }
+    }
+
+    private static assertUserIdNotEmpty(userId: string): void {
+        if (userId.trim() === '') {
+            throw new Error("The userId is required and can't be blank")
+        }
     }
 
     private async insertReservation(
@@ -74,6 +88,9 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
     }
 
     async release(userId: string, operationId: string): Promise<ReleaseResult> {
+        D1CreditReservationRepository.assertUserIdNotEmpty(userId)
+        D1CreditReservationRepository.assertOperationIdNonEmpty(operationId)
+
         const receipt = await this.releaseReservation(userId, operationId)
 
         if (receipt !== undefined) {
