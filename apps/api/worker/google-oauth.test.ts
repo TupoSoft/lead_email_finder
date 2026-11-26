@@ -95,7 +95,11 @@ function sessionCookie(response: Response): string {
     assert.match(cookie, /SameSite=Lax/)
     assert.match(cookie, /Path=\//)
 
-    return cookie.split(';', 1)[0]
+    const [cookiePair] = cookie.split(';', 1)
+
+    assert.ok(cookiePair)
+
+    return cookiePair
 }
 
 function users(): Promise<UserRow[]> {
@@ -126,9 +130,11 @@ async function assertInitialCredits(userId: string, balance = 10): Promise<void>
         `,
     )
 
+    const [initialGrant] = initialLedger
+
     assert.equal(initialLedger.length, 1)
-    assert.ok(initialLedger[0].id)
-    assert.partialDeepStrictEqual(initialLedger[0], {
+    assert.ok(initialGrant?.id)
+    assert.partialDeepStrictEqual(initialGrant, {
         userId,
         operationId: 'initial-allowance',
         delta: 10,
@@ -343,9 +349,17 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
 
         const storedUsers = await users()
-        const canonicalId = storedUsers[0].id
+        const [storedUser] = storedUsers
         const storedAccounts = await accounts()
-        const issued = codes.get(exchanges[0])
+        const [storedAccount] = storedAccounts
+        const [code] = exchanges
+
+        assert.ok(storedUser)
+        assert.ok(storedAccount)
+        assert.ok(code)
+
+        const canonicalId = storedUser.id
+        const issued = codes.get(code)
 
         // Authentication must grant before bootstrap can repair an interrupted provision.
         await assertInitialCredits(canonicalId)
@@ -353,12 +367,12 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.ok(issued)
         assert.deepEqual(storedUsers, [{ id: canonicalId, email: 'person@example.test', emailVerified: 1 }])
         assert.equal(storedAccounts.length, 1)
-        assert.equal(storedAccounts[0].userId, canonicalId)
-        assert.equal(storedAccounts[0].accountId, 'google-person')
+        assert.equal(storedAccount.userId, canonicalId)
+        assert.equal(storedAccount.accountId, 'google-person')
 
         for (const field of ['accessToken', 'refreshToken', 'idToken'] as const) {
-            assert.notEqual(storedAccounts[0][field], issued[field])
-            assert.equal(await symmetricDecrypt({ key: secret, data: storedAccounts[0][field] }), issued[field])
+            assert.notEqual(storedAccount[field], issued[field])
+            assert.equal(await symmetricDecrypt({ key: secret, data: storedAccount[field] }), issued[field])
         }
 
         const repeated = await callback(await begin(), {
@@ -373,8 +387,13 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.equal((await accounts()).length, 1)
         await assertInitialCredits(canonicalId)
 
-        const updated = (await accounts())[0]
-        const refreshedTokens = codes.get(exchanges[1])
+        const [updated] = await accounts()
+        const [, refreshedCode] = exchanges
+
+        assert.ok(updated)
+        assert.ok(refreshedCode)
+
+        const refreshedTokens = codes.get(refreshedCode)
 
         assert.ok(refreshedTokens)
 
@@ -424,10 +443,11 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         }
 
         const recovered = await callback(await begin(), identity)
-        const canonicalId = (await users())[0].id
+        const [storedUser] = await users()
 
-        await assertInitialCredits(canonicalId)
-        assert.equal(await principal(recovered), canonicalId)
+        assert.ok(storedUser)
+        await assertInitialCredits(storedUser.id)
+        assert.equal(await principal(recovered), storedUser.id)
     })
 
     it('keeps a committed grant singular when session issuance fails after provisioning', async () => {
@@ -443,17 +463,22 @@ describe('Google redirect OAuth through simulated provider transport', () => {
 
             await assertRejected(failed)
             assert.deepEqual(await database.all(sql`select id from sessions`), [])
-            await assertInitialCredits((await users())[0].id)
+
+            const [storedUser] = await users()
+
+            assert.ok(storedUser)
+            await assertInitialCredits(storedUser.id)
         } finally {
             await platform.env.DB.prepare('DROP TRIGGER IF EXISTS reject_oauth_session').run()
         }
 
         const originalLedger = await database.all(sql`select * from credit_ledger`)
         const recovered = await callback(await begin(), identity)
-        const canonicalId = (await users())[0].id
+        const [storedUser] = await users()
 
-        assert.equal(await principal(recovered), canonicalId)
-        await assertInitialCredits(canonicalId)
+        assert.ok(storedUser)
+        assert.equal(await principal(recovered), storedUser.id)
+        await assertInitialCredits(storedUser.id)
         assert.deepEqual(await database.all(sql`select * from credit_ledger`), originalLedger)
     })
 
@@ -509,8 +534,11 @@ describe('Google redirect OAuth through simulated provider transport', () => {
         assert.deepEqual(exchanges, [])
 
         const success = await callback(first, identity)
+        const signedInUserId = await principal(success)
+        const [storedUser] = await users()
 
-        assert.equal(await principal(success), (await users())[0].id)
+        assert.ok(storedUser)
+        assert.equal(signedInUserId, storedUser.id)
         await assertRejected(await callback(first, identity))
         assert.equal(exchanges.length, 1)
 
@@ -562,7 +590,11 @@ describe('Google redirect OAuth through simulated provider transport', () => {
 
         await assertRejected(await callback(await begin(), { ...identity, email_verified: false }))
         assert.deepEqual(await accounts(), originalAccounts)
-        assert.equal((await users())[0].id, canonicalId)
+
+        const [storedUser] = await users()
+
+        assert.ok(storedUser)
+        assert.equal(storedUser.id, canonicalId)
     })
 
     it('refuses implicit linking to an unverified local email', async () => {
@@ -593,9 +625,10 @@ describe('Google redirect OAuth through simulated provider transport', () => {
                 callback(await begin(), { sub: 'both-methods-google', email, email_verified: true })
             const magic = async (): Promise<Response> => request(await magicLink(email))
             const first = await (firstMethod === 'google' ? google() : magic())
-            const provisionedId = (await users())[0].id
+            const [provisionedUser] = await users()
 
-            await assertInitialCredits(provisionedId)
+            assert.ok(provisionedUser)
+            await assertInitialCredits(provisionedUser.id)
 
             const canonicalId = await principal(first)
 
@@ -657,26 +690,28 @@ describe('Google redirect OAuth through simulated provider transport', () => {
 
         const successful = responses.filter(hasSession)
         const storedUsers = await users()
+        const [storedUser] = storedUsers
 
         assert.equal(arrivals, 3)
         assert.equal(successful.length, responses.length)
         assert.equal(storedUsers.length, 1)
-        await assertInitialCredits(storedUsers[0].id)
+        assert.ok(storedUser)
+        await assertInitialCredits(storedUser.id)
 
         for (const response of successful) {
-            assert.equal(await principal(response), storedUsers[0].id)
+            assert.equal(await principal(response), storedUser.id)
         }
 
         const retryGoogle = await callback(await begin(), identity)
         const retryMagic = await request(await magicLink(email))
 
-        assert.equal(await principal(retryGoogle), storedUsers[0].id)
-        assert.equal(await principal(retryMagic), storedUsers[0].id)
+        assert.equal(await principal(retryGoogle), storedUser.id)
+        assert.equal(await principal(retryMagic), storedUser.id)
         assert.equal((await users()).length, 1)
-        await assertInitialCredits(storedUsers[0].id)
+        await assertInitialCredits(storedUser.id)
         assert.deepEqual(
             (await accounts()).map(row => row.userId),
-            [storedUsers[0].id],
+            [storedUser.id],
         )
     })
 

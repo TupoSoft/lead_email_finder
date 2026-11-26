@@ -185,7 +185,7 @@ export const requireApplicationMutation: MiddlewareHandler<WorkerEnvironment> = 
         return context.json({ code: 'origin_not_allowed' }, 403)
     }
 
-    const contentType = context.req.header('Content-Type')?.split(';', 1)[0].trim().toLowerCase()
+    const contentType = context.req.header('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
 
     if (contentType !== 'application/json') {
         return context.json({ code: 'json_required' }, 415)

@@ -8,7 +8,16 @@ export type AdmissionResult =
 export type ReleaseResult =
     { kind: 'released' } | { kind: 'replay' } | { kind: 'already-captured' } | { kind: 'not-found' }
 
+export type SettlementResult =
+    | { kind: 'settled' }
+    | { kind: 'replay' }
+    | { kind: 'amount-conflict' }
+    | { kind: 'already-released' }
+    | { kind: 'not-found' }
+    | { kind: 'invalid-charge' }
+
 export interface CreditReservationRepository {
     reserve(userId: string, operationId: string, amount: number): Promise<AdmissionResult>
     release(userId: string, operationId: string): Promise<ReleaseResult>
+    settle(userId: string, operationId: string, amount: number): Promise<SettlementResult>
 }

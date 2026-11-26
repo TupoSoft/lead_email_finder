@@ -215,6 +215,30 @@ describe(D1CreditReservationRepository.name, () => {
             assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 2, available: 8 })
         })
 
+        it('advances updated_at when releasing a reservation', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            const originalUpdatedAt = Date.UTC(2020, 0, 1)
+            await database.run(sql`
+                insert into credit_reservations (user_id, operation_id, amount, state, created_at, updated_at)
+                values (${userId}, ${operationId}, 3, 'reserved', ${originalUpdatedAt}, ${originalUpdatedAt})
+            `)
+
+            const result = await reservations.release(userId, operationId)
+
+            assert.deepEqual(result, { kind: 'released' })
+
+            const [receipt] = (await creditState(userId)).receipts
+            const updatedAt = receipt?.updated_at
+
+            assert.equal(receipt?.state, 'released')
+            assert.ok(typeof updatedAt === 'number')
+            assert.ok(
+                updatedAt > originalUpdatedAt,
+                `expected updated_at to advance from ${originalUpdatedAt}, got ${updatedAt}`,
+            )
+        })
+
         it('replays a second release without changing the receipt or refunding twice', async () => {
             const userId = await createUser(10)
             await seedReservation(userId, 'verification-1', 3)
@@ -347,72 +371,51 @@ describe(D1CreditReservationRepository.name, () => {
             }
         })
 
-        it('allows only one of concurrent release and settlement to succeed', async () => {
+        it('allows only one terminal transition when release and settlement run concurrently', async () => {
             const userId = await createUser(10)
-            await seedReservation(userId, 'verification-1', 3)
+            const operationId = 'verification-1'
+            const amount = 3
+            await seedReservation(userId, operationId, amount)
             const original = await creditState(userId)
-            const chargeId = randomUUID()
 
-            const releaseRequest = Promise.resolve().then(() => reservations.release(userId, 'verification-1'))
-            // Settlement has no production method yet; model its atomic capture and debit in D1.
-            const settlementRequest = Promise.resolve().then(() =>
-                database.batchSql([
-                    sql`
-                        update credit_reservations
-                        set state = 'captured'
-                        where user_id = ${userId}
-                          and operation_id = 'verification-1'
-                          and state = 'reserved'
-                    `,
-                    sql`
-                        insert into credit_ledger (id, user_id, operation_id, delta, reason)
-                        select ${chargeId}, user_id, operation_id, -amount, 'test_settlement'
-                        from credit_reservations
-                        where user_id = ${userId}
-                          and operation_id = 'verification-1'
-                          and state = 'captured'
-                          and changes() = 1
-                    `,
-                ]),
-            )
-
-            const [release, settlement] = await Promise.allSettled([releaseRequest, settlementRequest])
+            const [release, settlement] = await Promise.allSettled([
+                reservations.release(userId, operationId),
+                reservations.settle(userId, operationId, amount),
+            ])
 
             assert.equal(release.status, 'fulfilled')
             assert.equal(settlement.status, 'fulfilled')
 
-            const [capture, debit] = settlement.value
             const stored = await creditState(userId)
 
             assert.equal(stored.receipts.length, 1)
 
             if (release.value.kind === 'released') {
-                assert.equal(capture.meta.changes, 0)
-                assert.equal(debit.meta.changes, 0)
-                assert.partialDeepStrictEqual(stored.receipts[0], { amount: 3, state: 'released' })
+                assert.deepEqual(settlement.value, { kind: 'already-released' })
+                assert.partialDeepStrictEqual(stored.receipts[0], {
+                    operation_id: operationId,
+                    amount,
+                    state: 'released',
+                })
                 assert.deepEqual(stored.ledger, original.ledger)
                 assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
-            } else {
-                assert.deepEqual(release.value, { kind: 'already-captured' })
-                assert.equal(capture.meta.changes, 1)
-                assert.equal(debit.meta.changes, 1)
-                assert.partialDeepStrictEqual(stored.receipts[0], { amount: 3, state: 'captured' })
-                assert.deepEqual(
-                    stored.ledger.filter(entry => entry.id !== chargeId),
-                    original.ledger,
-                )
-                assert.equal(stored.ledger.length, original.ledger.length + 1)
-                assert.partialDeepStrictEqual(
-                    stored.ledger.find(entry => entry.id === chargeId),
-                    {
-                        user_id: userId,
-                        operation_id: 'verification-1',
-                        delta: -3,
-                        reason: 'test_settlement',
-                    },
-                )
-                assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+
+                return
             }
+
+            assert.deepEqual(release.value, { kind: 'already-captured' })
+            assert.deepEqual(settlement.value, { kind: 'settled' })
+            assert.partialDeepStrictEqual(stored.receipts[0], { operation_id: operationId, amount, state: 'captured' })
+            assert.equal(stored.ledger.length, original.ledger.length + 1)
+            assert.deepEqual(
+                stored.ledger.filter(entry => entry.operation_id !== operationId),
+                original.ledger,
+            )
+            assert.partialDeepStrictEqual(
+                stored.ledger.find(entry => entry.operation_id === operationId),
+                { user_id: userId, delta: -amount },
+            )
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
         })
 
         it('preserves the receipt and balance when the database rejects a release', async () => {
@@ -654,7 +657,7 @@ describe(D1CreditReservationRepository.name, () => {
                 const winningIndex = results.findIndex(
                     result => result.status === 'fulfilled' && result.value.kind === 'admitted',
                 )
-                const winningAmount = amounts[winningIndex]
+                const winningAmount = amounts[winningIndex] ?? 0
                 const stored = await creditState(userId)
 
                 assert.equal(stored.receipts.length, 1)
@@ -1005,6 +1008,291 @@ describe(D1CreditReservationRepository.name, () => {
                 assert.deepEqual(await creditState(userId), original)
                 assert.deepEqual(await credits.getSummary(userId), { balance: 5, reserved: 3, available: 2 })
             })
+        })
+    })
+
+    describe('settle', () => {
+        it('charges the full reserved amount', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 3)
+
+            const result = await reservations.settle(userId, operationId, 3)
+
+            assert.deepEqual(result, { kind: 'settled' })
+
+            const stored = await creditState(userId)
+
+            assert.equal(stored.receipts.length, 1)
+            assert.partialDeepStrictEqual(stored.receipts[0], {
+                user_id: userId,
+                operation_id: operationId,
+                amount: 3,
+                state: 'captured',
+            })
+            assert.equal(stored.ledger.length, 2)
+            assert.partialDeepStrictEqual(
+                stored.ledger.find(entry => entry.operation_id === operationId),
+                { user_id: userId, delta: -3 },
+            )
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+        })
+
+        it('advances updated_at when capturing a reservation', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            const originalUpdatedAt = Date.UTC(2020, 0, 1)
+            await database.run(sql`
+                insert into credit_reservations (user_id, operation_id, amount, state, created_at, updated_at)
+                values (${userId}, ${operationId}, 3, 'reserved', ${originalUpdatedAt}, ${originalUpdatedAt})
+            `)
+
+            const result = await reservations.settle(userId, operationId, 3)
+
+            assert.deepEqual(result, { kind: 'settled' })
+
+            const [receipt] = (await creditState(userId)).receipts
+            const updatedAt = receipt?.updated_at
+
+            assert.equal(receipt?.state, 'captured')
+            assert.ok(typeof updatedAt === 'number')
+            assert.ok(
+                updatedAt > originalUpdatedAt,
+                `expected updated_at to advance from ${originalUpdatedAt}, got ${updatedAt}`,
+            )
+        })
+
+        it('charges less than the reserved amount and releases unused credits', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 5)
+
+            const result = await reservations.settle(userId, operationId, 3)
+
+            assert.deepEqual(result, { kind: 'settled' })
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+
+            const stored = await creditState(userId)
+
+            assert.equal(stored.receipts.length, 1)
+            assert.partialDeepStrictEqual(stored.receipts[0], {
+                user_id: userId,
+                operation_id: operationId,
+                amount: 5,
+                state: 'captured',
+            })
+            assert.equal(stored.ledger.length, 2)
+            assert.partialDeepStrictEqual(
+                stored.ledger.find(entry => entry.operation_id === operationId),
+                { user_id: userId, delta: -3 },
+            )
+        })
+
+        it('settles zero billable credits with a zero-delta ledger receipt', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 5)
+
+            const result = await reservations.settle(userId, operationId, 0)
+
+            assert.deepEqual(result, { kind: 'settled' })
+
+            const stored = await creditState(userId)
+
+            assert.equal(stored.receipts.length, 1)
+            assert.partialDeepStrictEqual(stored.receipts[0], {
+                user_id: userId,
+                operation_id: operationId,
+                amount: 5,
+                state: 'captured',
+            })
+            assert.equal(stored.ledger.length, 2)
+            assert.partialDeepStrictEqual(
+                stored.ledger.find(entry => entry.operation_id === operationId),
+                { user_id: userId, delta: 0 },
+            )
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
+        })
+
+        it('repeats settlement with the same amount without changing state', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            const billableAmount = 3
+            await seedReservation(userId, operationId, 5)
+
+            const firstResult = await reservations.settle(userId, operationId, billableAmount)
+
+            assert.deepEqual(firstResult, { kind: 'settled' })
+
+            const settled = await creditState(userId)
+
+            const secondResult = await reservations.settle(userId, operationId, billableAmount)
+
+            assert.deepEqual(secondResult, { kind: 'replay' })
+
+            assert.deepEqual(await creditState(userId), settled)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+        })
+
+        it('returns a conflict when settlement is repeated with a different amount', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            const reservedAmount = 5
+            await seedReservation(userId, operationId, reservedAmount)
+
+            const firstResult = await reservations.settle(userId, operationId, 3)
+
+            assert.deepEqual(firstResult, { kind: 'settled' })
+
+            const settled = await creditState(userId)
+
+            const secondResult = await reservations.settle(userId, operationId, reservedAmount)
+
+            assert.deepEqual(secondResult, { kind: 'amount-conflict' })
+            assert.deepEqual(await creditState(userId), settled)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+        })
+
+        it('cannot settle an already-released reservation', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 3)
+
+            const releaseResult = await reservations.release(userId, operationId)
+
+            assert.deepEqual(releaseResult, { kind: 'released' })
+
+            const released = await creditState(userId)
+
+            const result = await reservations.settle(userId, operationId, 3)
+
+            assert.deepEqual(result, { kind: 'already-released' })
+            assert.deepEqual(await creditState(userId), released)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 0, available: 10 })
+        })
+
+        it('cannot settle a nonexistent reservation', async () => {
+            const userId = await createUser(10)
+            await seedReservation(userId, 'existing-reservation', 2)
+            const original = await creditState(userId)
+
+            const result = await reservations.settle(userId, 'missing-reservation', 3)
+
+            assert.deepEqual(result, { kind: 'not-found' })
+            assert.deepEqual(await creditState(userId), original)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 2, available: 8 })
+        })
+
+        it("cannot affect another user's reservation", async () => {
+            const requestingUserId = await createUser(10)
+            const reservationOwnerId = await createUser(8)
+            const operationId = 'verification-1'
+            await seedReservation(reservationOwnerId, operationId, 3)
+            const requestingUserOriginal = await creditState(requestingUserId)
+            const reservationOwnerOriginal = await creditState(reservationOwnerId)
+
+            const result = await reservations.settle(requestingUserId, operationId, 3)
+
+            assert.deepEqual(result, { kind: 'not-found' })
+            assert.deepEqual(await creditState(requestingUserId), requestingUserOriginal)
+            assert.deepEqual(await creditState(reservationOwnerId), reservationOwnerOriginal)
+            assert.deepEqual(await credits.getSummary(requestingUserId), { balance: 10, reserved: 0, available: 10 })
+            assert.deepEqual(await credits.getSummary(reservationOwnerId), { balance: 8, reserved: 3, available: 5 })
+        })
+
+        it.each([
+            { name: 'negative', amount: -1 },
+            { name: 'fractional', amount: 1.5 },
+            { name: 'unsafe integer', amount: Number.MAX_SAFE_INTEGER + 1 },
+        ])('rejects an invalid settlement amount ($name) without changing state', async ({ amount }) => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 3)
+            const original = await creditState(userId)
+
+            await assert.rejects(() => reservations.settle(userId, operationId, amount), /safe integer/i)
+
+            assert.deepEqual(await creditState(userId), original)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 3, available: 7 })
+        })
+
+        it('rejects settlement above the reserved amount without changing state', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            await seedReservation(userId, operationId, 3)
+            const original = await creditState(userId)
+
+            const result = await reservations.settle(userId, operationId, 4)
+
+            assert.deepEqual(result, { kind: 'invalid-charge' })
+            assert.deepEqual(await creditState(userId), original)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 3, available: 7 })
+        })
+
+        it('creates only one ledger charge for two concurrent settlements', async () => {
+            const userId = await createUser(10)
+            const operationId = 'verification-1'
+            const billableAmount = 3
+            await seedReservation(userId, operationId, 5)
+
+            const results = await Promise.allSettled([
+                reservations.settle(userId, operationId, billableAmount),
+                reservations.settle(userId, operationId, billableAmount),
+            ])
+
+            const kinds = results.map(result => {
+                assert.equal(result.status, 'fulfilled')
+
+                return result.value.kind
+            })
+
+            assert.deepEqual(kinds.sort(), ['replay', 'settled'])
+
+            const stored = await creditState(userId)
+
+            assert.equal(stored.receipts.length, 1)
+            assert.partialDeepStrictEqual(stored.receipts[0], {
+                user_id: userId,
+                operation_id: operationId,
+                amount: 5,
+                state: 'captured',
+            })
+            assert.equal(stored.ledger.length, 2)
+            assert.partialDeepStrictEqual(
+                stored.ledger.find(entry => entry.operation_id === operationId),
+                { user_id: userId, delta: -3 },
+            )
+            assert.deepEqual(await credits.getSummary(userId), { balance: 7, reserved: 0, available: 7 })
+        })
+
+        it('rolls back the reservation state change when the ledger insert fails', async () => {
+            const userId = await createUser(10)
+            const operationId = 'settlement-rollback'
+            await seedReservation(userId, operationId, 3)
+            const original = await creditState(userId)
+
+            // language=SQLite
+            await database.run(sql`
+                create trigger reject_credit_settlement_ledger_insert
+                before insert on credit_ledger
+                when new.operation_id = 'settlement-rollback'
+                begin
+                    select raise(abort, 'synthetic settlement ledger insert failure');
+                end
+            `)
+
+            try {
+                await assert.rejects(
+                    () => reservations.settle(userId, operationId, 3),
+                    /synthetic settlement ledger insert failure/,
+                )
+            } finally {
+                // language=SQLite
+                await database.run(sql`drop trigger if exists reject_credit_settlement_ledger_insert`)
+            }
+
+            assert.deepEqual(await creditState(userId), original)
+            assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 3, available: 7 })
         })
     })
 })

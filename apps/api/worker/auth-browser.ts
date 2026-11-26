@@ -137,7 +137,7 @@ export function browserAuthPolicy(database: Database, origin: string, requestId?
                     return Promise.resolve({ response: Response.json({ code: 'origin_not_allowed' }, { status: 403 }) })
                 }
 
-                const contentType = request.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase()
+                const contentType = request.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
 
                 if (contentType !== 'application/json') {
                     return Promise.resolve({ response: Response.json({ code: 'json_required' }, { status: 415 }) })

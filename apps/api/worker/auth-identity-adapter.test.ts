@@ -46,7 +46,7 @@ describe('canonical authentication identity adapter', () => {
         const result = await wrapped.create(userInput)
 
         assert.deepEqual(result, verifiedUser)
-        assert.deepEqual(findOne.mock.calls[0][0], {
+        assert.deepEqual(findOne.mock.calls[0]?.[0], {
             model: 'user',
             where: [
                 { field: 'email', value: verifiedUser.email },
@@ -98,7 +98,7 @@ describe('canonical authentication identity adapter', () => {
         const result = await wrapped.create({ model: 'account', data: existingAccount })
 
         assert.deepEqual(result, existingAccount)
-        assert.deepEqual(findOne.mock.calls[0][0], {
+        assert.deepEqual(findOne.mock.calls[0]?.[0], {
             model: 'account',
             where: [
                 { field: 'providerId', value: 'google' },

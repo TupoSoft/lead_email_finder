@@ -9,7 +9,8 @@
         "paths": {
             "@/*": ["./worker/*"]
         },
-        "types": ["node"]
+        "types": ["node"],
+        "noUncheckedIndexedAccess": true
     },
     "include": [
         "worker/**/*.ts",

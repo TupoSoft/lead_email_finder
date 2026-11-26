@@ -15,11 +15,11 @@ const databases = readdirSync(directory, { recursive: true, withFileTypes: true 
     .filter(entry => entry.isFile() && entry.name.endsWith('.sqlite') && entry.name !== 'metadata.sqlite')
     .map(entry => join(entry.parentPath, entry.name))
 
-if (databases.length !== 1) {
+const [databasePath] = databases
+
+if (databasePath === undefined || databases.length !== 1) {
     throw new Error(`Expected one local D1 database in ${directory}; run db:sync to initialize it.`)
 }
-
-const databasePath = databases[0]
 
 // noinspection JSUnusedGlobalSymbols
 export default defineConfig({
