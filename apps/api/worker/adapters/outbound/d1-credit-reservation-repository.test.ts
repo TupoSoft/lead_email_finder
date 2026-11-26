@@ -1224,7 +1224,7 @@ describe(D1CreditReservationRepository.name, () => {
 
             const result = await reservations.settle(userId, operationId, 4)
 
-            assert.deepEqual(result, { kind: 'amount-conflict' })
+            assert.deepEqual(result, { kind: 'invalid-charge' })
             assert.deepEqual(await creditState(userId), original)
             assert.deepEqual(await credits.getSummary(userId), { balance: 10, reserved: 3, available: 7 })
         })

@@ -179,10 +179,11 @@ export class D1CreditReservationRepository implements CreditReservationRepositor
             return { kind: 'not-found' }
         }
 
-        if (
-            amount > existingReservation.amount ||
-            (existingLedgerEntry !== undefined && -existingLedgerEntry.delta != amount)
-        ) {
+        if (amount > existingReservation.amount) {
+            return { kind: 'invalid-charge' }
+        }
+
+        if (existingLedgerEntry !== undefined && -existingLedgerEntry.delta != amount) {
             return { kind: 'amount-conflict' }
         }
 

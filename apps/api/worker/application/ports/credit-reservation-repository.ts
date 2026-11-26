@@ -14,6 +14,7 @@ export type SettlementResult =
     | { kind: 'amount-conflict' }
     | { kind: 'already-released' }
     | { kind: 'not-found' }
+    | { kind: 'invalid-charge' }
 
 export interface CreditReservationRepository {
     reserve(userId: string, operationId: string, amount: number): Promise<AdmissionResult>
