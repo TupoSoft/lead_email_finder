@@ -53,7 +53,8 @@ export class NativeHumanUserProvisioner {
              RETURNING id, ${columns.email} AS email, ${columns.emailVerified} AS email_verified`,
             [normalized],
         )
-        if (inserted.length === 1) return toUser(inserted[0], true)
+        const [insertedUser] = inserted
+        if (inserted.length === 1 && insertedUser) return toUser(insertedUser, true)
 
         const winner = await this.findByEmail(normalized)
         if (!winner) throw new NativeUserProvisioningError('concurrently-removed')

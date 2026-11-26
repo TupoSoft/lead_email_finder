@@ -95,7 +95,11 @@ function sessionCookie(response: Response): string {
     assert.ok(cookie.includes('SameSite=Lax'))
     assert.ok(cookie.includes('Path=/'))
 
-    return cookie.split(';', 1)[0]
+    const [nameAndValue] = cookie.split(';', 1)
+
+    assert.ok(nameAndValue)
+
+    return nameAndValue
 }
 
 beforeAll(async () => {
@@ -130,7 +134,7 @@ describe('public D1 Better Auth magic links', () => {
 
         assert.deepEqual(await database.select().from(users), [])
         assert.deepEqual(await database.select().from(sessions), [])
-        assert.equal(messages[0].to, email)
+        assert.equal(messages[0]?.to, email)
 
         const registered = await redeem(link)
 
@@ -143,15 +147,18 @@ describe('public D1 Better Auth magic links', () => {
         const me = await request('/v1/me', { headers: { Cookie: sessionCookie(registered) } })
         const allUsers = await database.select().from(users)
         const allSessions = await database.select().from(sessions)
+        const [registeredUser] = allUsers
+        const [session] = allSessions
 
         assert.equal(allUsers.length, 1)
-        assert.equal(allUsers[0].email, email)
-        assert.equal(allUsers[0].emailVerified, true)
+        assert.ok(registeredUser)
+        assert.equal(registeredUser.email, email)
+        assert.equal(registeredUser.emailVerified, true)
         assert.equal(allSessions.length, 1)
-        assert.equal(allSessions[0].userId, allUsers[0].id)
+        assert.equal(session?.userId, registeredUser.id)
         assert.equal(me.status, 200)
         assert.deepEqual(await me.json(), {
-            user: { id: allUsers[0].id, name: '', email, emailVerified: true, image: null },
+            user: { id: registeredUser.id, name: '', email, emailVerified: true, image: null },
         })
 
         const loginLink = await issueLink(email)
@@ -168,15 +175,17 @@ describe('public D1 Better Auth magic links', () => {
         const before = Date.now()
         const link = await issueLink()
         const records = await database.select().from(verifications)
+        const [verification] = records
         const token = link.searchParams.get('token')
 
         assert.ok(token)
         assert.equal(records.length, 1)
-        assert.equal(records[0].identifier, `magic-link:${createHash('sha256').update(token).digest('base64url')}`)
+        assert.ok(verification)
+        assert.equal(verification.identifier, `magic-link:${createHash('sha256').update(token).digest('base64url')}`)
         assert.ok(!JSON.stringify(records).includes(token))
-        assert.ok(records[0].expiresAt.getTime() >= before + 300_000)
-        assert.ok(records[0].expiresAt.getTime() <= Date.now() + 300_000)
-        assert.ok(messages[0].text?.includes('The link expires in 5 minutes and works once.'))
+        assert.ok(verification.expiresAt.getTime() >= before + 300_000)
+        assert.ok(verification.expiresAt.getTime() <= Date.now() + 300_000)
+        assert.ok(messages[0]?.text?.includes('The link expires in 5 minutes and works once.'))
     })
 
     it('allows exactly one concurrent redemption and rejects every replay', async () => {
@@ -350,12 +359,14 @@ describe('public D1 Better Auth magic links', () => {
         assert.equal(jsonResponse.status, 400)
         assert.deepEqual(jsonResponse.headers.getSetCookie(), [])
 
-        for (const [key, value] of [
+        const ambiguousParams: [string, string][] = [
             ['disableRedirect', 'true'],
             ['__proto__', 'unexpected'],
             ['token', 'other-token'],
             ['callbackURL', '/app/other'],
-        ]) {
+        ]
+
+        for (const [key, value] of ambiguousParams) {
             const ambiguous = new URL(link)
             ambiguous.searchParams.append(key, value)
 

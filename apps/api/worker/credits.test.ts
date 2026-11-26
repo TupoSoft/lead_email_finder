@@ -295,12 +295,14 @@ describe('durable personal credit provisioning on D1', () => {
         await Promise.all(Array.from({ length: 16 }, (_, index) => credits.provision(userId, index + 1)))
 
         const initialLedger = await ledgerEntries()
+        const [initialGrant] = initialLedger
 
         assert.equal(initialLedger.length, 1)
-        assert.ok(initialLedger[0].delta >= 1 && initialLedger[0].delta <= 16)
-        assert.equal((await credits.getSummary(userId)).balance, initialLedger[0].delta)
+        assert.ok(initialGrant)
+        assert.ok(initialGrant.delta >= 1 && initialGrant.delta <= 16)
+        assert.equal((await credits.getSummary(userId)).balance, initialGrant.delta)
 
-        await appendCredit(userId, -initialLedger[0].delta)
+        await appendCredit(userId, -initialGrant.delta)
 
         const spentLedger = await ledgerEntries()
 

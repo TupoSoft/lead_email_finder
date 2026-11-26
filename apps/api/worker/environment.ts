@@ -49,20 +49,17 @@ export const environmentSchema = z.object({
 
     AUTH_MAIL_FROM: z.string({ error: senderError }).transform((from, context): string | EmailAddress => {
         const namedAddress = /^([^<>"\r\n]+) <([^<>]+)>$/.exec(from)
+        const name = namedAddress?.[1]?.trim()
         const address = namedAddress?.[2] ?? from
 
-        if (
-            /[\r\n\0]/.test(from) ||
-            !emailAddressSchema.safeParse(address).success ||
-            (namedAddress && !namedAddress[1].trim())
-        ) {
+        if (/[\r\n\0]/.test(from) || !emailAddressSchema.safeParse(address).success || (namedAddress && !name)) {
             context.addIssue({ code: 'custom', message: senderError })
 
             return z.NEVER
         }
 
-        if (namedAddress) {
-            return { name: namedAddress[1].trim(), email: address }
+        if (name) {
+            return { name, email: address }
         }
 
         return address
